@@ -8,7 +8,7 @@
     <style type="text/css">
         .box {
             background: lightgray;
-            width: 50%;
+            width: 75%;
             padding: 5px;
         }
         
@@ -26,38 +26,54 @@
 <body>
 
     <p class="note">NOTE: The most recent version of this document is always available at:<br/>
-        <a id="onlineurl" href="http://www.math.clemson.edu/~heister/cite.html">http://www.math.clemson.edu/~heister/cite.html</a>.
+        <a id="onlineurl" href="https://geodynamics.github.io/aspect/cite.html">https://geodynamics.github.io/aspect/cite.html</a>.
     </p>
-    Comment: of course this will be a permanent URL like http://geodynamics.github.io/aspect/cite.html
 
     <script type="text/javascript">
         var checkboxes = ["fs", "melt"];
 
         var papers = {
             aspect1: {
-                text: "M. Kronbichler, T. Heister, W. Bangerth:\nHigh Accuracy Mantle Convection Simulation through Modern Numerical Methods Geophysical Journal International, 2012, 191, 12-29.",
+                text: "M. Kronbichler, T. Heister, W. Bangerth:\nHigh Accuracy Mantle Convection Simulation through Modern Numerical Methods\nGeophysical Journal International, 2012, 191, 12-29.",
                 bibtexkey: "bangerth_mantle",
-                bibtex: "@article{bangerth_mantle,\nauthor = {M. Kronbichler and T. Heister and W. Bangerth},\ntitle = {High Accuracy Mantle Convection Simulation through Modern Numerical	Methods},\njournal = {ACM Trans. Math. Softw.},\nyear = {2012},\nvolume = {38},\nnumber = {2},\ndoi = {10.1145/2049673.2049678},\nissue_date = {December 2011},\nurl = {http://doi.acm.org/10.1145/2049673.2049678}\n}",
+                bibtex: "@article{bangerth_mantle,\nauthor = {M. Kronbichler and T. Heister and W. Bangerth},\ntitle = {High Accuracy Mantle Convection Simulation through Modern Numerical Methods},\njournal = {ACM Trans. Math. Softw.},\nyear = {2012},\nvolume = {38},\nnumber = {2},\ndoi = {10.1145/2049673.2049678},\nissue_date = {December 2011},\nurl = {http://doi.acm.org/10.1145/2049673.2049678}\n}",
                 url: "http://aspect1",
-                scholar: "bla"
+                scholar: ""
             },
+
+	    manual140: {
+                text: "W. Bangerth and T. Heister and others:\nASPECT: Advanced Solver for Problems in Earth's ConvecTion v1.4.0\nComputational Infrastructure for Geodynamics, 2016.\nhttps://github.com/geodynamics/aspect/releases/download/v1.4.0/manual-1.4.0.pdf",
+                bibtexkey: "aspect_manual_1_4_0",
+                bibtex: "@misc{aspect_manual_1_4_0,\ntitle={{ASPECT: Advanced Solver for Problems in Earth's ConvecTion v1.4.0}},\nhowpublished={\\url{https://github.com/geodynamics/aspect/releases/download/v1.4.0/manual-1.4.0.pdf}\n}",
+                url: "",
+                scholar: ""
+            },
+
+	    manual150: {
+                text: "W. Bangerth and J. Dannberg and R. Gassm&ouml;ller and T. Heister and others:\nASPECT: Advanced Solver for Problems in Earth's ConvecTion v1.5.0\nComputational Infrastructure for Geodynamics, 2016.\nhttps://github.com/geodynamics/aspect/releases/download/v1.5.0/manual-1.5.0.pdf",
+                bibtexkey: "aspect_manual_1_5_0",
+                bibtex: "@misc{aspect_manual_1_5_0,\ntitle={{ASPECT: Advanced Solver for Problems in Earth's ConvecTion v1.5.0}},\nhowpublished={\\url{https://github.com/geodynamics/aspect/releases/download/v1.5.0/manual-1.5..0.pdf}\n}",
+                url: "",
+                scholar: ""
+            },
+
             fs: {
-                text: "freesurface paper</br>Ian Rose",
-                bibtexkey: "aspect_freesurface",
-                bibtex: "@article{aspect_freesurface}",
+                text: "Ian Rose, Bruce Buffett, Timo Heister:\nFree surface computations in mantle convection models\nsubmitted, 2015.",
+                bibtexkey: "rose_2015_freesurface",
+                bibtex: "@article{rose_2015_freesurface,\nTitle = {Free surface ccomputation in mantle convection models},\nAuthor = {Ian Rose and Bruce Buffett and Timo Heister},\nJournal = {submitted},\nYear = {2015},\n}",
                 url: "http://bla.frees",
-                scholar: "bla.freesurface"
+                scholar: ""
             },
             melt: {
-                text: "melt paper</br>J Dannberg",
-                bibtexkey: "aspect_melt",
-                bibtex: "@paper{aspect_melt}",
+                text: "J. Dannberg, T. Heister:\n3D Compressible Melt Transport With Mesh Adaptivity\nsubmitted, 2015.",
+                bibtexkey: "dannberg_2015_melt",
+                bibtex: "@article{dannberg_melt,\nTitle = {3D Compressible Melt Transport With Mesh Adaptivity},\nAuthor = {Juliane Dannberg and Timo Heister},\nJournal = {submitted},\nYear = {2015},\n}",
                 url: "http://bla.melt",
-                scholar: "bla.melt"
+                scholar: ""
             },
         };
 
-        var intext = "Computations were done using the ASPECT code version <i>(FILLIN)</i>, see \\cite{CITEKEYS}</i>";
+        var intext = "Computations were done using the ASPECT code version <i>(FILLIN)</i>, see \\cite{CITEKEYS}.";
 
         var thanks = "We thank the Computational Infrastructure for Geodynamics (geodynamics.org) which is funded by the National Science Foundation under award NSF-0949446 for supporting the development of ASPECT.";
     </script>
@@ -69,7 +85,10 @@
     </p>
 
 
-    <p><b>Please select the following features you used:</b></p>
+    <p><b>Please select the following features you used:</b>
+<br/>
+To give credit to the authors of significant pieces contributed to ASPECT, please check the following checkboxes of features that you feel were important to get your computational results. This will add relevant citations to the list of papers below. 
+</p>
     <form action="">
         <label><input type="checkbox" id="fs" onchange="update()">Free Surface</label>
         <br>
@@ -82,7 +101,11 @@
     <p><b>Please add the following Acknowledgement:</b></p>
     <div id="thanks" class="box"></div>
 
-    <p><b>Paper:</b></p>
+    <p><b>Papers:</b>
+<br>
+The canonical reference for ASPECT is the first publication listed here, but please consider citing
+all the references below:
+</p>
     <div id="paper" class="box"></div>
 
     <p><b>Bibtex:</b></p>
@@ -91,32 +114,34 @@
 
     <script type="text/javascript">
         function update() {
-            var selected_paper = ["aspect1"];
+            var selected_paper = ["aspect1","manual140"];
+            var urlstuff = [];
             for (var i = 0; i < checkboxes.length; ++i)
                 if (document.getElementById(checkboxes[i]).checked)
+{
                     selected_paper.push(checkboxes[i]);
-
+                urlstuff.push(checkboxes[i] + '=1');
+}
 
             var keys = [];
             var txt = "";
-            var bibtxt = ""
-            var urlstuff = [];
+            var bibtxt = "";
 
             for (var i = 0; i < selected_paper.length; ++i) {
                 txt += papers[selected_paper[i]].text + "<br/><br/>";
                 bibtxt += papers[selected_paper[i]].bibtex + "<br/><br/>";
                 keys.push(papers[selected_paper[i]].bibtexkey);
-                urlstuff.push(selected_paper[i] + '=1');
             }
 
-            document.getElementById('intext').innerHTML = intext.replace("CITEKEYS", keys.join());
+            document.getElementById('intext').innerHTML = intext.replace("CITEKEYS", keys.join(", "));
             document.getElementById('thanks').innerHTML = thanks;
 
-            document.getElementById('paper').innerHTML = txt.replace("\n", "\n<br/>");
-            document.getElementById('bibtex').innerHTML = bibtxt.replace("\n", "\n<br/>");
-
-            //this won't work because it triggers a refresh: window.location.href="cite.html?"+urlstuff.join('&');
-            var url = "http://www.math.clemson.edu/~heister/cite.html?" + urlstuff.join('&');
+            document.getElementById('paper').innerHTML = txt.replace(/\n/g, "\n<br/>");
+            document.getElementById('bibtex').innerHTML = bibtxt.replace(/\n/g, "\n<br/>");
+            
+	var params = urlstuff.join('&');
+        if (params.length>0) params="?"+params;
+            var url = "https://geodynamics.github.io/aspect/cite.html" + params;
             document.getElementById('onlineurl').innerText = url;
             document.getElementById('onlineurl').href = url;
 
