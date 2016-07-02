@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="cache-control" content="no-cache" />
+    <title>Citing ASPECT</title>
+    <style type="text/css">
+        .box {
+            background: lightgray;
+            width: 50%;
+            padding: 5px;
+        }
+        
+        .note {
+            background: pink;
+            width: 75%;
+            font-size: large;
+	    margin: auto;
+	    border: 1px solid blue;
+            padding: 5px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <p class="note">NOTE: The most recent version of this document is always available at:<br/>
+        <a id="onlineurl" href="http://www.math.clemson.edu/~heister/cite.html">http://www.math.clemson.edu/~heister/cite.html</a>.
+    </p>
+    Comment: of course this will be a permanent URL like http://geodynamics.github.io/aspect/cite.html
+
+    <script type="text/javascript">
+        var checkboxes = ["fs", "melt"];
+
+        var papers = {
+            aspect1: {
+                text: "M. Kronbichler, T. Heister, W. Bangerth:\nHigh Accuracy Mantle Convection Simulation through Modern Numerical Methods Geophysical Journal International, 2012, 191, 12-29.",
+                bibtexkey: "bangerth_mantle",
+                bibtex: "@article{bangerth_mantle,\nauthor = {M. Kronbichler and T. Heister and W. Bangerth},\ntitle = {High Accuracy Mantle Convection Simulation through Modern Numerical	Methods},\njournal = {ACM Trans. Math. Softw.},\nyear = {2012},\nvolume = {38},\nnumber = {2},\ndoi = {10.1145/2049673.2049678},\nissue_date = {December 2011},\nurl = {http://doi.acm.org/10.1145/2049673.2049678}\n}",
+                url: "http://aspect1",
+                scholar: "bla"
+            },
+            fs: {
+                text: "freesurface paper</br>Ian Rose",
+                bibtexkey: "aspect_freesurface",
+                bibtex: "@article{aspect_freesurface}",
+                url: "http://bla.frees",
+                scholar: "bla.freesurface"
+            },
+            melt: {
+                text: "melt paper</br>J Dannberg",
+                bibtexkey: "aspect_melt",
+                bibtex: "@paper{aspect_melt}",
+                url: "http://bla.melt",
+                scholar: "bla.melt"
+            },
+        };
+
+        var intext = "Computations were done using the ASPECT code version <i>(FILLIN)</i>, see \\cite{CITEKEYS}</i>";
+
+        var thanks = "We thank the Computational Infrastructure for Geodynamics (geodynamics.org) which is funded by the National Science Foundation under award NSF-0949446 for supporting the development of ASPECT.";
+    </script>
+
+    <p>temporary links:
+        <a href="cite.html">none</a>
+        <a href="cite.html?fs=1">free</a>
+        <a href="cite.html?fs=1&melt=1">both</a>
+    </p>
+
+
+    <p><b>Please select the following features you used:</b></p>
+    <form action="">
+        <label><input type="checkbox" id="fs" onchange="update()">Free Surface</label>
+        <br>
+        <label><input type="checkbox" id="melt" onchange="update()">Melt Transport</label>
+    </form>
+
+    <p><b>Please use the following notation to cite ASPECT:</b></p>
+    <div id="intext" class="box"></div>
+
+    <p><b>Please add the following Acknowledgement:</b></p>
+    <div id="thanks" class="box"></div>
+
+    <p><b>Paper:</b></p>
+    <div id="paper" class="box"></div>
+
+    <p><b>Bibtex:</b></p>
+    <div id="bibtex" class="box"></div>
+
+
+    <script type="text/javascript">
+        function update() {
+            var selected_paper = ["aspect1"];
+            for (var i = 0; i < checkboxes.length; ++i)
+                if (document.getElementById(checkboxes[i]).checked)
+                    selected_paper.push(checkboxes[i]);
+
+
+            var keys = [];
+            var txt = "";
+            var bibtxt = ""
+            var urlstuff = [];
+
+            for (var i = 0; i < selected_paper.length; ++i) {
+                txt += papers[selected_paper[i]].text + "<br/><br/>";
+                bibtxt += papers[selected_paper[i]].bibtex + "<br/><br/>";
+                keys.push(papers[selected_paper[i]].bibtexkey);
+                urlstuff.push(selected_paper[i] + '=1');
+            }
+
+            document.getElementById('intext').innerHTML = intext.replace("CITEKEYS", keys.join());
+            document.getElementById('thanks').innerHTML = thanks;
+
+            document.getElementById('paper').innerHTML = txt.replace("\n", "\n<br/>");
+            document.getElementById('bibtex').innerHTML = bibtxt.replace("\n", "\n<br/>");
+
+            //this won't work because it triggers a refresh: window.location.href="cite.html?"+urlstuff.join('&');
+            var url = "http://www.math.clemson.edu/~heister/cite.html?" + urlstuff.join('&');
+            document.getElementById('onlineurl').innerText = url;
+            document.getElementById('onlineurl').href = url;
+
+        }
+
+        function getParameterByName(name, url) {
+            if (!url) url = window.location.href;
+            name = name.replace(/[\[\]]/g, "\\$&");
+            var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)"),
+                results = regex.exec(url);
+            if (!results) return null;
+            if (!results[2]) return '';
+            return decodeURIComponent(results[2].replace(/\+/g, " "));
+        }
+
+        function autorun() {
+            for (var i = 0; i < checkboxes.length; ++i)
+	    {
+              if (getParameterByName(checkboxes[i]) == "1")
+                document.getElementById(checkboxes[i]).checked = true;
+            }
+
+            update();
+        }
+
+        if (document.addEventListener) document.addEventListener("DOMContentLoaded", autorun, false);
+        else if (document.attachEvent) document.attachEvent("onreadystatechange", autorun);
+        else window.onload = autorun;
+    </script>
+</body>
+
+</html>
