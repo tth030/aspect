@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2014 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2014 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -24,7 +24,7 @@
 
 #include <aspect/global.h>
 
-#include <deal.II/base/std_cxx11/array.h>
+#include <array>
 #include <deal.II/base/point.h>
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/table_indices.h>
@@ -32,7 +32,6 @@
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/fe/component_mask.h>
 
-#include <aspect/geometry_model/interface.h>
 #include <aspect/coordinate_systems.h>
 
 
@@ -75,6 +74,104 @@ namespace aspect
                                  const std::string &id_text);
 
     /**
+     * This function takes a string argument that is interpreted as a map
+     * of the form "key1 : value1, key2 : value2, etc", and then parses
+     * it to return a vector of these values where the values are ordered
+     * in the same order as a given set of keys. If @p allow_multiple_values_per_key
+     * is set to 'true' it also allows entries of the form
+     * "key1: value1|value2|value3, etc", in which case the returned
+     * vector will have more entries than the provided
+     * @p list_of_keys.
+     *
+     * This function also considers a number of special cases:
+     * - If the input string consists of only a comma separated
+     *   set of values "value1, value2, value3, ..." (i.e., without
+     *   the "keyx :" part), then the input string is interpreted
+     *   as if it had had the form "key1 : value1, key2 : value2, ..."
+     *   where "key1", "key2", ... are exactly the keys provided by the
+     *   @p list_of_keys in the same order as provided. In this situation,
+     *   if a background field is required, the background value is
+     *   assigned to the first element of the output vector. This form only
+     *   allows a single value per key.
+     * - Whether or not a background field is required depends on
+     *   @p expects_background_field. Requiring a background field
+     *   inserts "background" into the @p list_of_keys as the first entry
+     *   in the list. Some calling functions (like some material models)
+     *   require values for background fields, while others may not
+     *   need background values.
+     * - Two special keys are recognized:
+     *      all --> Assign the associated value to all fields.
+     *              Only one key is allowed in this case.
+     *      background --> Assign associated value to the background.
+     *
+     * @param[in] key_value_map The string representation of the map
+     *   to be parsed.
+     * @param[in] list_of_keys A list of N valid key names that are allowed
+     *   to appear in the map. The order of these keys determines the order
+     *   of values that are returned by this function.
+     * @param[in] expects_background_field If true, expect N+1 values and allow
+     *   setting of the background using the key "background".
+     * @param[in] property_name A name that identifies the type of property
+     *   that is being parsed by this function and that is used in generating
+     *   error messages if the map does not conform to the expected format.
+     * @param [in] allow_multiple_values_per_key If true allow having multiple values
+     *   for each key. If false only allow a single value per key. In either
+     *   case each key is only allowed to appear once.
+     * @param [in,out] n_values_per_key A pointer to a vector of unsigned
+     *   integers. If no pointer is handed over nothing happens. If a pointer
+     *   to an empty vector is handed over, the vector
+     *   is resized with as many components as
+     *   keys (+1 if there is a background field). Each value then stores
+     *   how many values were found for this key. The sum over all
+     *   entries is the length of the return value of this function.
+     *   If a pointer to an existing vector with one or more entries is
+     *   handed over (e.g. a n_values_per_key vector created by a
+     *   previous call to this function) then this vector is used as
+     *   expected structure of the input parameter, and it is checked that
+     *   @p key_value_map fulfills this structure. This can be used to assert
+     *   that several input parameters prescribe the same number of values
+     *   to each key.
+     * @param [in] allow_missing_keys Whether to allow that some keys are
+     *   not set to any values, i.e. they do not appear at all in the
+     *   @p key_value_map. This also allows a completely empty map.
+     *
+     * @return A vector of values that are parsed from the map, provided
+     *   in the order in which the keys appear in the @p list_of_keys argument.
+     *   If multiple values per key are allowed, the vector contains first all
+     *   values for key 1, then all values for key 2 and so forth. Using the
+     *   @p n_values_per_key vector allows the caller to associate entries in the
+     *   returned vector with specific keys.
+     */
+    std::vector<double>
+    parse_map_to_double_array (const std::string &key_value_map,
+                               const std::vector<std::string> &list_of_keys,
+                               const bool expects_background_field,
+                               const std::string &property_name,
+                               const bool allow_multiple_values_per_key = false,
+                               const std::shared_ptr<std::vector<unsigned int> > &n_values_per_key = nullptr,
+                               const bool allow_missing_keys = false);
+
+    /**
+     * This function takes a string argument that is assumed to represent
+     * an input table, in which each row is separated by
+     * semicolons, and each column separated by commas. The function
+     * returns the parsed entries as a table. In addition this function
+     * utilizes the possibly_extend_from_1_to_N() function to accept
+     * inputs with only a single column/row, which will be extended
+     * to @p n_rows or @p n_columns respectively, to allow abbreviating
+     * the input string (e.g. you can provide a single value instead of
+     * n_rows by n_columns identical values). This function can for example
+     * be used by material models to read densities for different
+     * compositions and different phases for each composition.
+     */
+    template <typename T>
+    Table<2,T>
+    parse_input_table (const std::string &input_string,
+                       const unsigned int n_rows,
+                       const unsigned int n_columns,
+                       const std::string &property_name);
+
+    /**
      * Given a vector @p var_declarations expand any entries of the form
      * vector(str) or tensor(str) to sublists with component names of the form
      * str_x, str_y, str_z or str_xx, str_xy... for the correct dimension
@@ -91,6 +188,7 @@ namespace aspect
     expand_dimensional_variable_names (const std::vector<std::string> &var_declarations);
 
 
+#if !DEAL_II_VERSION_GTE(9,2,0)
     /**
      * Split the set of DoFs (typically locally owned or relevant) in @p whole_set into blocks
      * given by the @p dofs_per_block structure.
@@ -101,7 +199,7 @@ namespace aspect
     void split_by_block (const std::vector<types::global_dof_index> &dofs_per_block,
                          const IndexSet &whole_set,
                          std::vector<IndexSet> &partitioned);
-
+#endif
 
     /**
      * Returns an IndexSet that contains all locally active DoFs that belong to
@@ -124,8 +222,8 @@ namespace aspect
        * the Earth with WGS84 parameters.
        */
       template <int dim>
-      std_cxx11::array<double,dim>
-      WGS84_coordinates(const Point<dim> &position);
+      std::array<double,dim>
+      WGS84_coordinates(const dealii::Point<dim> &position);
 
       /**
        * Returns spherical coordinates of a Cartesian point. The returned array
@@ -134,8 +232,8 @@ namespace aspect
        *
        */
       template <int dim>
-      std_cxx11::array<double,dim>
-      cartesian_to_spherical_coordinates(const Point<dim> &position);
+      std::array<double,dim>
+      cartesian_to_spherical_coordinates(const dealii::Point<dim> &position);
 
       /**
        * Return the Cartesian point of a spherical position defined by radius,
@@ -143,8 +241,19 @@ namespace aspect
        * omitted.
        */
       template <int dim>
-      Point<dim>
-      spherical_to_cartesian_coordinates(const std_cxx11::array<double,dim> &scoord);
+      dealii::Point<dim>
+      spherical_to_cartesian_coordinates(const std::array<double,dim> &scoord);
+
+      /**
+       * Given a vector defined in the radius, phi and theta directions, return
+       * a vector defined in Cartesian coordinates. If the dimension is set to 2
+       * theta is omitted. Position is given as a Point in Cartesian coordinates.
+       */
+      template <int dim>
+      Tensor<1,dim>
+      spherical_to_cartesian_vector(const Tensor<1,dim> &spherical_vector,
+                                    const dealii::Point<dim> &position);
+
 
       /**
        * Returns ellipsoidal coordinates of a Cartesian point. The returned array
@@ -152,18 +261,18 @@ namespace aspect
        *
        */
       template <int dim>
-      std_cxx11::array<double,3>
-      cartesian_to_ellipsoidal_coordinates(const Point<3> &position,
+      std::array<double,3>
+      cartesian_to_ellipsoidal_coordinates(const dealii::Point<3> &position,
                                            const double semi_major_axis_a,
                                            const double eccentricity);
 
       /**
        * Return the Cartesian point of a ellipsoidal position defined by phi,
-       * phi and radius.
+       * theta and radius.
        */
       template <int dim>
-      Point<3>
-      ellipsoidal_to_cartesian_coordinates(const std_cxx11::array<double,3> &phi_theta_d,
+      dealii::Point<3>
+      ellipsoidal_to_cartesian_coordinates(const std::array<double,3> &phi_theta_d,
                                            const double semi_major_axis_a,
                                            const double eccentricity);
 
@@ -197,6 +306,17 @@ namespace aspect
     signed_distance_to_polygon(const std::vector<Point<2> > &point_list,
                                const dealii::Point<2> &point);
 
+
+    /**
+     * Given a 2d point and a list of two points that define a line, compute the smallest
+     * distance of the point to the line segment. When the point's perpendicular
+     * base does not lie on the line segment, the smallest distance to the segment's end
+     * points is calculated.
+     */
+    double
+    distance_to_line(const std::array<dealii::Point<2>,2 > &point_list,
+                     const dealii::Point<2> &point);
+
     /**
      * Given a vector @p v in @p dim dimensional space, return a set
      * of (dim-1) vectors that are orthogonal to @p v and to each
@@ -205,7 +325,7 @@ namespace aspect
      * represents a well-conditioned basis.
      */
     template <int dim>
-    std_cxx11::array<Tensor<1,dim>,dim-1>
+    std::array<Tensor<1,dim>,dim-1>
     orthogonal_vectors (const Tensor<1,dim> &v);
 
     /**
@@ -255,11 +375,12 @@ namespace aspect
     struct ThousandSep : std::numpunct<char>
     {
       protected:
-        virtual char do_thousands_sep() const
+        char do_thousands_sep() const override
         {
           return ',';
         }
-        virtual std::string do_grouping() const
+
+        std::string do_grouping() const override
         {
           return "\003";  // groups of 3 digits (this string is in octal format)
         }
@@ -272,6 +393,13 @@ namespace aspect
      * @param filename File to check existence
      */
     bool fexists(const std::string &filename);
+
+    /**
+     * Checks to see if the user is trying to use data from a url.
+     *
+     * @param filename File to check
+     */
+    bool filename_is_url(const std::string &filename);
 
     /**
      * Reads the content of the ascii file @p filename on process 0 and
@@ -408,7 +536,8 @@ namespace aspect
           // Non-specified behavior
           AssertThrow(false,
                       ExcMessage("Length of " + id_text + " list must be " +
-                                 "either one or " + Utilities::to_string(N)));
+                                 "either one or " + Utilities::to_string(N) +
+                                 ". Currently it is " + Utilities::to_string(values.size()) + "."));
         }
 
       // This should never happen, but return an empty vector so the compiler
@@ -473,7 +602,23 @@ namespace aspect
          * therefore when using this constructor it is necessary to provide
          * this list in the first uncommented line of the data file.
          */
-        AsciiDataLookup(const double scale_factor);
+        explicit AsciiDataLookup(const double scale_factor);
+
+        /**
+         * Replace the data stored in this class by the data given to this function.
+         *
+         * @note This is a manual way to fill the data. Consider load_file() if your data
+         * is stored in a txt/csv file.
+         *
+         * The data consists of @p n_components (implicitly given by the size of @p column_names)
+         * specified at @p coordinate_values[d] points in each of the dim coordinate directions @p d.
+         *
+         * The data in @p raw_data consists of a Table for each of the @p n_components components.
+         */
+        void reinit(const std::vector<std::string> &column_names,
+                    const std::vector<std::vector<double>> &coordinate_values,
+                    const std::vector<Table<dim,double> > &raw_data
+                   );
 
         /**
          * Loads a data text file. Throws an exception if the file does not
@@ -490,11 +635,26 @@ namespace aspect
          *
          * @param position The current position to compute the data (velocity,
          * temperature, etc.)
-         * @param component The index of the data column to be returned.
+         * @param component The index (starting at 0) of the data column to be
+         * returned. The index is therefore less than the number of data
+         * columns in the data file (or specified in the constructor).
          */
         double
         get_data(const Point<dim> &position,
                  const unsigned int component) const;
+
+        /**
+         * Returns the gradient of the function based on the bilinear
+         * interpolation of the data (velocity, temperature, etc. - according
+         * to the used plugin) in Cartesian coordinates.
+         *
+         * @param position The current position to compute the data (velocity,
+         * temperature, etc.)
+         * @param component The index of the data column to be returned.
+         */
+        Tensor<1,dim>
+        get_gradients(const Point<dim> &position,
+                      const unsigned int component);
 
         /**
          * Returns a vector that contains the names of all data columns in the
@@ -512,6 +672,20 @@ namespace aspect
          */
         bool
         has_equidistant_coordinates() const;
+
+        /**
+         * Returns the coordinates at which data is stored. This function
+         * can be used to determine the number of data points, or to query
+         * data only at exactly the positions at which it is available (avoiding
+         * interpolation).
+         *
+         * @param dimension The spatial direction for which to return the data
+         * coordinates, e.g. 0 for x-direction, 1 for y-direction, or equivalent
+         * values if your data coordinates are other dimensions such as
+         * temperature, pressure.
+         */
+        const std::vector<double> &
+        get_coordinates(const unsigned int dimension) const;
 
         /**
          * Returns the column index of a column with the given name
@@ -552,12 +726,12 @@ namespace aspect
          * Either InterpolatedUniformGridData or InterpolatedTensorProductGridData;
          * the type is determined from the grid specified in the data file.
          */
-        std::vector<Function<dim> *> data;
+        std::vector<std::unique_ptr<Function<dim>>> data;
 
         /**
          * The coordinate values in each direction as specified in the data file.
          */
-        std_cxx11::array<std::vector<double>,dim> coordinate_values;
+        std::array<std::vector<double>,dim> coordinate_values;
 
         /**
          * The maximum value of each component
@@ -567,7 +741,7 @@ namespace aspect
         /**
          * The min and max of the coordinates in the data file.
          */
-        std_cxx11::array<std::pair<double,double>,dim> grid_extent;
+        std::array<std::pair<double,double>,dim> grid_extent;
 
         /**
          * Number of points in the data grid as specified in the data file.
@@ -587,11 +761,11 @@ namespace aspect
         bool coordinate_values_are_equidistant;
 
         /**
-         * Computes the table indices of each entry in the input data file.
-         * The index depends on dim, grid_dim and the number of components.
+         * Computes the table indices given the size @p sizes of the
+         * i-th entry.
          */
         TableIndices<dim>
-        compute_table_indices(const unsigned int i) const;
+        compute_table_indices(const TableIndices<dim> &sizes, const unsigned int i) const;
 
     };
 
@@ -615,13 +789,15 @@ namespace aspect
         void
         declare_parameters (ParameterHandler  &prm,
                             const std::string &default_directory,
-                            const std::string &default_filename);
+                            const std::string &default_filename,
+                            const std::string &subsection_name = "Ascii data model");
 
         /**
          * Read the parameters from the parameter file.
          */
         void
-        parse_parameters (ParameterHandler &prm);
+        parse_parameters (ParameterHandler &prm,
+                          const std::string &subsection_name = "Ascii data model");
 
         /**
          * Directory in which the data files are present.
@@ -691,19 +867,29 @@ namespace aspect
                                      const unsigned int       component) const;
 
         /**
+         * Return the gradients of the parameters from the parameter file.
+         */
+        Tensor<1,dim-1>
+        vector_gradient(const types::boundary_id boundary_indicator,
+                        const Point<dim>        &p,
+                        const unsigned int       component) const;
+
+        /**
          * Declare the parameters all derived classes take from input files.
          */
         static
         void
         declare_parameters (ParameterHandler  &prm,
                             const std::string &default_directory,
-                            const std::string &default_filename);
+                            const std::string &default_filename,
+                            const std::string &subsection_name = "Ascii data model");
 
         /**
          * Read the parameters from the parameter file.
          */
         void
-        parse_parameters (ParameterHandler &prm);
+        parse_parameters (ParameterHandler &prm,
+                          const std::string &subsection_name = "Ascii data model");
 
       protected:
 
@@ -720,14 +906,14 @@ namespace aspect
          * the actual position (the function returns [0,1,2] or [0,1]), but
          * for the boundary conditions it matters.
          */
-        std_cxx11::array<unsigned int,dim-1>
+        std::array<unsigned int,dim-1>
         get_boundary_dimensions (const types::boundary_id boundary_id) const;
 
         /**
          * A variable that stores the currently used data file of a series. It
          * gets updated if necessary by update().
          */
-        int  current_file_number;
+        int current_file_number;
 
         /**
          * Time from which on the data file with number 'First data file
@@ -776,13 +962,13 @@ namespace aspect
          * data we get from text files.
          */
         std::map<types::boundary_id,
-            std_cxx11::shared_ptr<aspect::Utilities::AsciiDataLookup<dim-1> > > lookups;
+            std::unique_ptr<aspect::Utilities::AsciiDataLookup<dim-1> > > lookups;
 
         /**
          * Map between the boundary id and the old data objects.
          */
         std::map<types::boundary_id,
-            std_cxx11::shared_ptr<aspect::Utilities::AsciiDataLookup<dim-1> > > old_lookups;
+            std::unique_ptr<aspect::Utilities::AsciiDataLookup<dim-1> > > old_lookups;
 
         /**
          * Handles the update of the data in lookup.
@@ -802,9 +988,11 @@ namespace aspect
          * Create a filename out of the name template.
          */
         std::string
-        create_filename (const int timestep,
+        create_filename (const int filenumber,
                          const types::boundary_id boundary_id) const;
     };
+
+
 
     /**
      * A base class that implements initial conditions determined from a
@@ -840,8 +1028,89 @@ namespace aspect
          * Pointer to an object that reads and processes data we get from text
          * files.
          */
-        std_cxx11::shared_ptr<aspect::Utilities::AsciiDataLookup<dim> > lookup;
+        std::unique_ptr<aspect::Utilities::AsciiDataLookup<dim> > lookup;
     };
+
+
+    /**
+     * A base class that implements conditions determined from a
+     * layered AsciiData input file.
+     */
+    template <int dim>
+    class AsciiDataLayered : public Utilities::AsciiDataBase<dim>, public SimulatorAccess<dim>
+    {
+      public:
+        /**
+         * Constructor
+         */
+        AsciiDataLayered();
+
+        /**
+         * Initialization function. This function is called once at the
+         * beginning of the program. Checks preconditions.
+         */
+        virtual
+        void
+        initialize (const unsigned int components);
+
+
+        /**
+         * Returns the data component at the given position.
+         */
+        double
+        get_data_component (const Point<dim> &position,
+                            const unsigned int component) const;
+
+
+        /**
+         * Declare the parameters all derived classes take from input files.
+         */
+        static
+        void
+        declare_parameters (ParameterHandler  &prm,
+                            const std::string &default_directory,
+                            const std::string &default_filename,
+                            const std::string &subsection_name = "Ascii data model");
+
+        /**
+         * Read the parameters from the parameter file.
+         */
+        void
+        parse_parameters (ParameterHandler &prm,
+                          const std::string &subsection_name = "Ascii data model");
+
+      protected:
+        /**
+         * Pointer to an object that reads and processes data we get from text
+         * files.
+         */
+        std::vector<std::unique_ptr<aspect::Utilities::AsciiDataLookup<dim-1> >> lookups;
+
+      private:
+
+        /**
+         * Directory in which the data files are present.
+         */
+        std::string data_directory;
+
+        /**
+         * Filenames of data files.
+         */
+        std::vector<std::string> data_file_names;
+
+        /**
+         * Number of layer boundaries in the model.
+         */
+        unsigned int number_of_layer_boundaries;
+
+        /**
+         * Interpolation scheme for profile averaging.
+         */
+        std::string interpolation_scheme;
+
+
+    };
+
 
     /**
      * A base class that reads in a data profile and provides its values.
@@ -881,6 +1150,15 @@ namespace aspect
         get_column_names() const;
 
         /**
+        * Returns the coordinates at which profile data is stored. This function
+        * can be used to determine the number of data points, or to query
+        * data only at exactly the positions at which it is available (avoiding
+        * interpolation).
+        */
+        const std::vector<double> &
+        get_coordinates() const;
+
+        /**
          * Returns the column index of a column with the given name
          * @p column_name. Throws an exception if no such
          * column exists or no names were provided in the file.
@@ -908,7 +1186,7 @@ namespace aspect
          * Pointer to an object that reads and processes data we get from text
          * files.
          */
-        std_cxx11::unique_ptr<aspect::Utilities::AsciiDataLookup<1> > lookup;
+        std::unique_ptr<aspect::Utilities::AsciiDataLookup<1> > lookup;
     };
 
 
@@ -997,13 +1275,13 @@ namespace aspect
      * Converts an array of size dim to a Point of size dim.
      */
     template <int dim>
-    Point<dim> convert_array_to_point(const std_cxx11::array<double,dim> &array);
+    Point<dim> convert_array_to_point(const std::array<double,dim> &array);
 
     /**
      * Converts a Point of size dim to an array of size dim.
      */
     template <int dim>
-    std_cxx11::array<double,dim> convert_point_to_array(const Point<dim> &point);
+    std::array<double,dim> convert_point_to_array(const Point<dim> &point);
 
     /**
      * A class that represents a binary operator between two doubles. The type of
@@ -1024,7 +1302,8 @@ namespace aspect
           add,
           subtract,
           minimum,
-          maximum
+          maximum,
+          replace_if_valid
         };
 
         /**
@@ -1064,6 +1343,11 @@ namespace aspect
     std::vector<Operator> create_model_operator_list(const std::vector<std::string> &operator_names);
 
     /**
+     * Create a string of model operators for use in declare_parameters
+     */
+    const std::string get_model_operator_options();
+
+    /**
      * A function that returns a SymmetricTensor, whose entries are zero, except for
      * the k'th component, which is set to one. If k is not on the main diagonal the
      * resulting tensor is symmetrized.
@@ -1071,30 +1355,37 @@ namespace aspect
     template <int dim>
     SymmetricTensor<2,dim> nth_basis_for_symmetric_tensors (const unsigned int k);
 
-    /*
-    * A class that represents a point in a chosen coordinate system.
-    */
+    /**
+     * A class that represents a point in a chosen coordinate system.
+     */
     template <int dim>
     class NaturalCoordinate
     {
       public:
         /**
-         * Constructor based on providing the geometry model as a pointer
+         * Constructor based on providing the geometry model as a pointer.
          */
         NaturalCoordinate(Point<dim> &position,
                           const GeometryModel::Interface<dim> &geometry_model);
 
         /**
+         * Constructor based on providing the coordinates and associated
+         * coordinate system.
+         */
+        NaturalCoordinate(const std::array<double, dim> &coord,
+                          const Utilities::Coordinates::CoordinateSystem &coord_system);
+
+        /**
          * Returns the coordinates in the given coordinate system, which may
          * not be Cartesian.
          */
-        std_cxx11::array<double,dim> &get_coordinates();
+        std::array<double,dim> &get_coordinates();
 
         /**
          * The coordinate that represents the 'surface' directions in the
          * chosen coordinate system.
          */
-        std_cxx11::array<double,dim-1> get_surface_coordinates() const;
+        std::array<double,dim-1> get_surface_coordinates() const;
 
         /**
          * The coordinate that represents the 'depth' direction in the chosen
@@ -1113,6 +1404,90 @@ namespace aspect
          * An array which stores the coordinates in the coordinates system
          */
         std::array<double,dim> coordinates;
+    };
+
+
+    /**
+     * Compute the cellwise projection of component @p component_index of @p function to the finite element space
+     * described by @p dof_handler.
+     *
+     * @param[in] mapping The mapping object to use.
+     * @param[in] dof_handler The DoFHandler the describes the finite element space to
+     * project into and that corresponds to @p vec_result.
+     * @param[in] component_index The component index of the @p dof_handler for which
+     * the projection is being performed. This component should be described by
+     * a DG finite element.
+     * @param[in] quadrature  The quadrature formula to use to evaluate @p function on each cell.
+     * @param[in] function The function to project into the finite element space.
+     * This function should store the value of the function at the points described
+     * by the 2nd argument into the 3rd argument as an std::vector<double>
+     * of size quadrature.size().
+     * @param[out] vec_result The output vector where the projected function will be
+     * stored in.
+     */
+    template <int dim, typename VectorType>
+    void
+    project_cellwise(const Mapping<dim>                                        &mapping,
+                     const DoFHandler<dim>                                     &dof_handler,
+                     const unsigned int                                         component_index,
+                     const Quadrature<dim>                                     &quadrature,
+                     const std::function<void(
+                       const typename DoFHandler<dim>::active_cell_iterator &,
+                       const std::vector<Point<dim> > &,
+                       std::vector<double> &)>                                 &function,
+                     VectorType                                                &vec_result);
+
+    /**
+    * Conversion object where one can provide a function that returns
+    * a tensor for the velocity at a given point and it returns something
+    * that matches the dealii::Function interface with a number of output
+    * components equal to the number of components of the finite element
+    * in use.
+    */
+    template <int dim>
+    class VectorFunctionFromVelocityFunctionObject : public Function<dim>
+    {
+      public:
+        /**
+         * Given a function object that takes a Point and returns a Tensor<1,dim>,
+         * convert this into an object that matches the Function@<dim@>
+         * interface.
+         *
+         * @param n_components total number of components of the finite element system.
+         * @param function_object The function that will form one component
+         *     of the resulting Function object.
+         */
+        VectorFunctionFromVelocityFunctionObject (const unsigned int n_components,
+                                                  const std::function<Tensor<1,dim> (const Point<dim> &)> &function_object);
+
+        /**
+         * Return the value of the
+         * function at the given
+         * point. Returns the value the
+         * function given to the constructor
+         * produces for this point.
+         */
+        double value (const Point<dim>   &p,
+                      const unsigned int  component = 0) const override;
+
+        /**
+         * Return all components of a
+         * vector-valued function at a
+         * given point.
+         *
+         * <tt>values</tt> shall have the right
+         * size beforehand,
+         * i.e. #n_components.
+         */
+        void vector_value (const Point<dim>   &p,
+                           Vector<double>     &values) const override;
+
+      private:
+        /**
+         * The function object which we call when this class's value() or
+         * value_list() functions are called.
+         **/
+        const std::function<Tensor<1,dim> (const Point<dim> &)> function_object;
     };
   }
 }

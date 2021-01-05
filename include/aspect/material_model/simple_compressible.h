@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2014 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2014 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -22,6 +22,7 @@
 #define _aspect_material_model_simple_compressible_h
 
 #include <aspect/material_model/interface.h>
+#include <aspect/material_model/rheology/constant_viscosity.h>
 #include <aspect/simulator_access.h>
 
 namespace aspect
@@ -31,9 +32,18 @@ namespace aspect
     using namespace dealii;
 
     /**
-     * A material model that consists of globally constant values for all
-     * material parameters except that the density decays linearly with the
-     * temperature and increases linearly with pressure.
+     * A material model that consists of globally constant values for the
+     * viscosity, thermal conductivity, thermal expansivity
+     * and compressibility. The density decays linearly with the
+     * temperature and increases exponentially with pressure.
+     *
+     * The formulation for the density assumes that the compressibility
+     * provided by the user is the adiabatic compressibility ($\beta_S$).
+     * The thermal expansivity and isentropic compressibility implied by
+     * the pressure and temperature dependence are equal to the
+     * user-defined constant values only along the reference isentrope, and
+     * there is also an implicit pressure dependence to the heat capacity
+     * $C_p$ via Maxwell's relations.
      *
      * The model is considered incompressible or compressible, depending on
      * the compressibility.
@@ -47,8 +57,8 @@ namespace aspect
         /**
          * Evaluate material properties.
          */
-        virtual void evaluate(const MaterialModelInputs<dim> &in,
-                              MaterialModelOutputs<dim> &out) const;
+        void evaluate(const MaterialModelInputs<dim> &in,
+                      MaterialModelOutputs<dim> &out) const override;
 
         /**
          * @name Qualitative properties one can ask a material model
@@ -63,7 +73,7 @@ namespace aspect
          * equation as $\nabla \cdot (\rho \mathbf u)=0$ (compressible Stokes)
          * or as $\nabla \cdot \mathbf{u}=0$ (incompressible Stokes).
          */
-        virtual bool is_compressible () const;
+        bool is_compressible () const override;
         /**
          * @}
          */
@@ -72,7 +82,7 @@ namespace aspect
          * @name Reference quantities
          * @{
          */
-        virtual double reference_viscosity () const;
+        double reference_viscosity () const override;
         /**
          * @}
          */
@@ -91,23 +101,18 @@ namespace aspect
         /**
          * Read the parameters this class declares from the parameter file.
          */
-        virtual
         void
-        parse_parameters (ParameterHandler &prm);
+        parse_parameters (ParameterHandler &prm) override;
+
         /**
          * @}
          */
 
       private:
         /**
-         * The reference surface temperature
+         * The reference density
          */
         double reference_rho;
-
-        /**
-         * The constant viscosity
-         */
-        double eta;
 
         /**
          * The constant thermal expansivity
@@ -129,6 +134,10 @@ namespace aspect
          */
         double k_value;
 
+        /**
+         * The constant rheology model.
+         */
+        Rheology::ConstantViscosity constant_rheology;
     };
 
   }

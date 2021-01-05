@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2017 by the authors of the ASPECT code.
+  Copyright (C) 2017 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -92,6 +92,15 @@ namespace aspect
         {}
 
 
+        template <int dim>
+        void
+        StokesPreconditioner<dim>::
+        reinit (const typename DoFHandler<dim>::active_cell_iterator &cell_ref)
+        {
+          this->cell = cell_ref;
+          this->face_number = numbers::invalid_unsigned_int;
+          finite_element_values.reinit (cell_ref);
+        }
 
 
         template <int dim>
@@ -157,6 +166,17 @@ namespace aspect
           rebuild_newton_stokes_matrix(scratch.rebuild_newton_stokes_matrix)
         {}
 
+        template <int dim>
+        void
+        StokesSystem<dim>::
+        reinit (const typename DoFHandler<dim>::active_cell_iterator &cell_ref,
+                const unsigned face_number_ref)
+        {
+          this->cell = cell_ref;
+          this->face_number = face_number_ref;
+          face_finite_element_values.reinit(cell_ref, face_number_ref);
+        }
+
 
 
         template <int dim>
@@ -176,31 +196,32 @@ namespace aspect
           finite_element_values (mapping,
                                  finite_element, quadrature,
                                  update_flags),
-          face_finite_element_values ((face_quadrature.size() > 0
-                                       ?
-                                       new FEFaceValues<dim> (mapping,
-                                                              finite_element, face_quadrature,
-                                                              face_update_flags)
-                                       :
-                                       NULL)),
-          neighbor_face_finite_element_values ((face_quadrature.size() > 0
-                                                ?
-                                                new FEFaceValues<dim> (mapping,
-                                                                       finite_element, face_quadrature,
-                                                                       face_update_flags)
-                                                :
-                                                NULL)),
-          subface_finite_element_values ((face_quadrature.size() > 0
-                                          ?
-                                          new FESubfaceValues<dim> (mapping,
-                                                                    finite_element, face_quadrature,
-                                                                    face_update_flags)
-                                          :
-                                          NULL)),
+          face_finite_element_values (face_quadrature.size() > 0
+                                      ?
+                                      std_cxx14::make_unique<FEFaceValues<dim>> (mapping,
+                                                                                 finite_element, face_quadrature,
+                                                                                 face_update_flags)
+                                      :
+                                      nullptr),
+          neighbor_face_finite_element_values (face_quadrature.size() > 0
+                                               ?
+                                               std_cxx14::make_unique<FEFaceValues<dim>> (mapping,
+                                                                                          finite_element, face_quadrature,
+                                                                                          face_update_flags)
+                                               :
+                                               nullptr),
+          subface_finite_element_values (face_quadrature.size() > 0
+                                         ?
+                                         std_cxx14::make_unique<FESubfaceValues<dim>> (mapping,
+                                                                                       finite_element, face_quadrature,
+                                                                                       face_update_flags)
+                                         :
+                                         nullptr),
           local_dof_indices (finite_element.dofs_per_cell),
 
           phi_field (advection_element.dofs_per_cell, numbers::signaling_nan<double>()),
           grad_phi_field (advection_element.dofs_per_cell, numbers::signaling_nan<Tensor<1,dim> >()),
+          laplacian_phi_field (advection_element.dofs_per_cell, numbers::signaling_nan<double>()),
           face_phi_field ((face_quadrature.size() > 0 ? advection_element.dofs_per_cell : 0),
                           numbers::signaling_nan<double>()),
           face_grad_phi_field ((face_quadrature.size() > 0 ? advection_element.dofs_per_cell : 0),
@@ -263,13 +284,35 @@ namespace aspect
                                  scratch.finite_element_values.get_fe(),
                                  scratch.finite_element_values.get_quadrature(),
                                  scratch.finite_element_values.get_update_flags()),
-          face_finite_element_values (scratch.face_finite_element_values),
-          neighbor_face_finite_element_values (scratch.neighbor_face_finite_element_values),
-          subface_finite_element_values (scratch.subface_finite_element_values),
+          face_finite_element_values (scratch.face_finite_element_values.get()
+                                      ?
+                                      std_cxx14::make_unique<FEFaceValues<dim>> (scratch.face_finite_element_values->get_mapping(),
+                                                                                 scratch.face_finite_element_values->get_fe(),
+                                                                                 scratch.face_finite_element_values->get_quadrature(),
+                                                                                 scratch.face_finite_element_values->get_update_flags())
+                                      :
+                                      nullptr),
+          neighbor_face_finite_element_values (scratch.neighbor_face_finite_element_values.get()
+                                               ?
+                                               std_cxx14::make_unique<FEFaceValues<dim>> (scratch.neighbor_face_finite_element_values->get_mapping(),
+                                                                                          scratch.neighbor_face_finite_element_values->get_fe(),
+                                                                                          scratch.neighbor_face_finite_element_values->get_quadrature(),
+                                                                                          scratch.neighbor_face_finite_element_values->get_update_flags())
+                                               :
+                                               nullptr),
+          subface_finite_element_values (scratch.subface_finite_element_values.get()
+                                         ?
+                                         std_cxx14::make_unique<FESubfaceValues<dim>> (scratch.subface_finite_element_values->get_mapping(),
+                                                                                       scratch.subface_finite_element_values->get_fe(),
+                                                                                       scratch.subface_finite_element_values->get_quadrature(),
+                                                                                       scratch.subface_finite_element_values->get_update_flags())
+                                         :
+                                         nullptr),
           local_dof_indices (scratch.finite_element_values.get_fe().dofs_per_cell),
 
           phi_field (scratch.phi_field),
           grad_phi_field (scratch.grad_phi_field),
+          laplacian_phi_field (scratch.laplacian_phi_field),
           face_phi_field (scratch.face_phi_field),
           face_grad_phi_field (scratch.face_grad_phi_field),
           neighbor_face_phi_field (scratch.neighbor_face_phi_field),
@@ -312,6 +355,18 @@ namespace aspect
           advection_field(scratch.advection_field),
           artificial_viscosity(scratch.artificial_viscosity)
         {}
+
+
+        template<int dim>
+        void
+        AdvectionSystem<dim>::
+        reinit (const typename DoFHandler<dim>::active_cell_iterator &cell_ref)
+        {
+          this->cell = cell_ref;
+          this->face_number = numbers::invalid_unsigned_int;
+          finite_element_values.reinit (cell_ref);
+        }
+
       }
 
 
@@ -356,12 +411,6 @@ namespace aspect
               ++i;
             }
         }
-
-
-        template <int dim>
-        StokesPreconditioner<dim>::
-        ~StokesPreconditioner ()
-        {}
 
 
 
@@ -435,24 +484,6 @@ namespace aspect
                                  :
                                  0),
                                 std::vector<types::global_dof_index>(finite_element.dofs_per_cell))
-        {}
-
-
-
-        template <int dim>
-        AdvectionSystem<dim>::
-        AdvectionSystem (const AdvectionSystem &data)
-          :
-          local_matrix (data.local_matrix),
-          local_matrices_int_ext (data.local_matrices_int_ext),
-          local_matrices_ext_int (data.local_matrices_ext_int),
-          local_matrices_ext_ext (data.local_matrices_ext_ext),
-          local_rhs (data.local_rhs),
-
-          assembled_matrices (data.assembled_matrices),
-
-          local_dof_indices (data.local_dof_indices),
-          neighbor_dof_indices (data.neighbor_dof_indices)
         {}
 
       }
@@ -535,4 +566,6 @@ namespace aspect
     template class Manager<dim>; \
   }
   ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
 }

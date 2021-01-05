@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -23,7 +23,7 @@
 #define _aspect_initial_temperature_S40RTS_perturbation_h
 
 #include <aspect/initial_temperature/interface.h>
-
+#include <aspect/utilities.h>
 
 namespace aspect
 {
@@ -35,10 +35,46 @@ namespace aspect
     {
       namespace S40RTS
       {
-        class SphericalHarmonicsLookup;
-        class SplineDepthsLookup;
+        class SphericalHarmonicsLookup
+        {
+          public:
+            SphericalHarmonicsLookup(const std::string &filename,
+                                     const MPI_Comm &comm);
+
+            /// Declare a function that returns the cosine coefficients
+            const std::vector<double> &
+            cos_coeffs() const;
+
+            /// Declare a function that returns the sine coefficients
+            const std::vector<double> &
+            sin_coeffs() const;
+
+            unsigned int maxdegree() const;
+
+          private:
+            unsigned int order;
+            std::vector<double> a_lm;
+            std::vector<double> b_lm;
+        };
+
+        class SplineDepthsLookup
+        {
+          public:
+            SplineDepthsLookup(const std::string &filename,
+                               const MPI_Comm &comm);
+
+            const std::vector<double> &
+            spline_depths() const;
+
+          private:
+            std::vector<double> depths;
+        };
       }
     }
+
+    template <int dim>
+    class PatchOnS40RTS;
+
 
     /**
      * A class that describes a perturbed initial temperature field for a
@@ -54,17 +90,27 @@ namespace aspect
     {
       public:
         /**
+         * Constructor. Initialize variables.
+         */
+        S40RTSPerturbation ();
+
+        /**
          * Initialization function. Loads the material data and sets up
          * pointers.
          */
         void
-        initialize ();
+        initialize () override;
+
+        /**
+         * Return the Vs as a function of position.
+         */
+        virtual
+        double get_Vs (const Point<dim> &position) const;
 
         /**
          * Return the initial temperature as a function of position.
          */
-        virtual
-        double initial_temperature (const Point<dim> &position) const;
+        double initial_temperature (const Point<dim> &position) const override;
 
         /**
          * Declare the parameters this class takes through input files.
@@ -76,12 +122,24 @@ namespace aspect
         /**
          * Read the parameters this class declares from the parameter file.
          */
-        virtual
         void
-        parse_parameters (ParameterHandler &prm);
-
+        parse_parameters (ParameterHandler &prm) override;
 
       private:
+
+        /**
+         * An enum to describe which method should be chosen to scale vs to density.
+         */
+        enum VsToDensityMethod
+        {
+          file,
+          constant
+        };
+
+        /**
+         * Currently chosen source for vs to density scaling.
+         */
+        VsToDensityMethod vs_to_density_method;
 
         /**
          * File directory and names
@@ -109,7 +167,7 @@ namespace aspect
          * The last parameter is a depth down to which heterogeneities are
          * zeroed out.
          */
-        double vs_to_density;
+        double vs_to_density_constant;
         double thermal_alpha;
         double no_perturbation_depth;
 
@@ -143,14 +201,30 @@ namespace aspect
          * Pointer to an object that reads and processes the spherical
          * harmonics coefficients
          */
-        std_cxx11::shared_ptr<internal::S40RTS::SphericalHarmonicsLookup> spherical_harmonics_lookup;
+        std::unique_ptr<internal::S40RTS::SphericalHarmonicsLookup> spherical_harmonics_lookup;
 
         /**
          * Pointer to an object that reads and processes the depths for the
          * spline knot points.
          */
-        std_cxx11::shared_ptr<internal::S40RTS::SplineDepthsLookup> spline_depths_lookup;
+        std::unique_ptr<internal::S40RTS::SplineDepthsLookup> spline_depths_lookup;
 
+        /**
+         * Object containing the data profile.
+         */
+        aspect::Utilities::AsciiDataProfile<dim> profile;
+
+        /**
+         * The column index of the vs to density scaling in the data file
+         */
+        unsigned int vs_to_density_index;
+
+        /**
+         * Whether to use the thermal expansion coefficient from the material model
+         */
+        bool use_material_model_thermal_alpha;
+
+        template <int dim2> friend class PatchOnS40RTS;
     };
 
   }

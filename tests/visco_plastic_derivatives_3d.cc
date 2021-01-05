@@ -9,8 +9,8 @@
 
 #include <deal.II/grid/tria.h>
 #include <deal.II/base/exceptions.h>
-#include <deal.II/base/std_cxx11/shared_ptr.h>
-#include <deal.II/base/std_cxx11/bind.h>
+#include <memory>
+#include <functional>
 
 #include <iostream>
 
@@ -53,6 +53,12 @@ void f(const aspect::SimulatorAccess<dim> &simulator_access,
   in_base.pressure[2] = 2e10;
   in_base.pressure[3] = 2e11;
   in_base.pressure[4] = 5e8;
+
+  in_base.position[0] = Point<dim>();
+  in_base.position[1] = Point<dim>();
+  in_base.position[2] = Point<dim>();
+  in_base.position[3] = Point<dim>();
+  in_base.position[4] = Point<dim>();
 
   /**
    * We can't take too small strain-rates, because then the difference in the
@@ -114,8 +120,8 @@ void f(const aspect::SimulatorAccess<dim> &simulator_access,
   // initialize the material we want to test.
   aspect::ParameterHandler prm;
 
-  const aspect::MaterialModel::ViscoPlastic<dim> const_material_model = dynamic_cast<const aspect::MaterialModel::ViscoPlastic<dim> &>(simulator_access.get_material_model());
-  aspect::MaterialModel::ViscoPlastic<dim> material_model = const_cast<aspect::MaterialModel::ViscoPlastic<dim> &>(const_material_model);
+  const aspect::MaterialModel::ViscoPlastic<dim> &const_material_model = dynamic_cast<const aspect::MaterialModel::ViscoPlastic<dim> &>(simulator_access.get_material_model());
+  aspect::MaterialModel::ViscoPlastic<dim> &material_model = const_cast<aspect::MaterialModel::ViscoPlastic<dim> &>(const_material_model);
 
   material_model.declare_parameters(prm);
 
@@ -132,7 +138,7 @@ void f(const aspect::SimulatorAccess<dim> &simulator_access,
 
   const_cast<aspect::MaterialModel::Interface<dim> &>(simulator_access.get_material_model()).parse_parameters(prm);
 
-  out_base.additional_outputs.push_back(std_cxx11::make_shared<MaterialModelDerivatives<dim> > (5));
+  out_base.additional_outputs.push_back(std_cxx14::make_unique<MaterialModelDerivatives<dim> > (5));
 
   simulator_access.get_material_model().evaluate(in_base, out_base);
 
@@ -180,8 +186,12 @@ void f(const aspect::SimulatorAccess<dim> &simulator_access,
 
       for (unsigned int i = 0; i < 5; i++)
         {
+          // components that are not on the diagonal are multiplied by 0.5, because the symmetric tensor
+          // is modified by 0.5 in both symmetric directions (xy/yx) simultaneously and we compute the combined
+          // derivative
           in_dviscositydstrainrate.strain_rate[i] = in_base.strain_rate[i]
                                                     + std::fabs(in_base.strain_rate[i][strain_rate_indices])
+                                                    * (component > dim-1 ? 0.5 : 1 )
                                                     * finite_difference_accuracy
                                                     * aspect::Utilities::nth_basis_for_symmetric_tensors<dim>(component);
         }
@@ -234,27 +244,26 @@ void signal_connector (aspect::SimulatorSignals<dim> &signals)
 {
   using namespace dealii;
   std::cout << "* Connecting signals" << std::endl;
-  signals.set_assemblers.connect (std_cxx11::bind(&f<dim>,
-                                                  std_cxx11::_1,
-                                                  std_cxx11::_2,
-                                                  "harmonic"));
+  signals.set_assemblers.connect (std::bind(&f<dim>,
+                                            std::placeholders::_1,
+                                            std::placeholders::_2,
+                                            "harmonic"));
 
-  signals.set_assemblers.connect (std_cxx11::bind(&f<dim>,
-                                                  std_cxx11::_1,
-                                                  std_cxx11::_2,
-                                                  "geometric"));
+  signals.set_assemblers.connect (std::bind(&f<dim>,
+                                            std::placeholders::_1,
+                                            std::placeholders::_2,
+                                            "geometric"));
 
-  signals.set_assemblers.connect (std_cxx11::bind(&f<dim>,
-                                                  std_cxx11::_1,
-                                                  std_cxx11::_2,
-                                                  "arithmetic"));
+  signals.set_assemblers.connect (std::bind(&f<dim>,
+                                            std::placeholders::_1,
+                                            std::placeholders::_2,
+                                            "arithmetic"));
 
-  signals.set_assemblers.connect (std_cxx11::bind(&f<dim>,
-                                                  std_cxx11::_1,
-                                                  std_cxx11::_2,
-                                                  "maximum composition"));
+  signals.set_assemblers.connect (std::bind(&f<dim>,
+                                            std::placeholders::_1,
+                                            std::placeholders::_2,
+                                            "maximum composition"));
 }
 
 ASPECT_REGISTER_SIGNALS_CONNECTOR(signal_connector<2>,
                                   signal_connector<3>)
-

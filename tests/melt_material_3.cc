@@ -39,7 +39,7 @@ namespace aspect
                             typename MaterialModel::Interface<dim>::MaterialModelOutputs &out) const
       {
 
-        for (unsigned int i=0; i<in.position.size(); ++i)
+        for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
           {
             out.viscosities[i] = 3.0/4.0;
             out.densities[i] = 4.0;
@@ -54,9 +54,9 @@ namespace aspect
         // fill melt outputs if they exist
         aspect::MaterialModel::MeltOutputs<dim> *melt_out = out.template get_additional_output<aspect::MaterialModel::MeltOutputs<dim> >();
 
-        if (melt_out != NULL)
+        if (melt_out != nullptr)
           {
-            for (unsigned int i=0; i<in.position.size(); ++i)
+            for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
               {
                 melt_out->compaction_viscosities[i] = 1.0;
                 melt_out->fluid_viscosities[i]= 2.0;

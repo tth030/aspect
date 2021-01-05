@@ -3,7 +3,7 @@
 
 /*
  * Launch the following function when this plugin is created. Launch ASPECT
- * twice to test checkpoint/resume and then abort the outer ASPECT run.
+ * twice to test checkpoint/resume and then terminate the outer ASPECT run.
  */
 int f()
 {
@@ -58,8 +58,8 @@ int f()
   std::cout << "* now comparing:" << std::endl;
 
   ret = system ("cd output-checkpoint_03_particles ; "
-                "cp output1.tmp/particles/particle-00009.0000.txt particles-00009.0000.gnuplot1;"
-                "cp output2.tmp/particles/particle-00009.0000.txt particles-00009.0000.gnuplot2;"
+                "cp output1.tmp/particles/particles-00009.0000.gnuplot particles-00009.0000.gnuplot1;"
+                "cp output2.tmp/particles/particles-00009.0000.gnuplot particles-00009.0000.gnuplot2;"
                 "cp output1.tmp/log.txt log.txt1;"
                 "cp output2.tmp/log.txt log.txt2;"
                 "cp output1.tmp/statistics statistics1;"
@@ -68,7 +68,7 @@ int f()
   if (ret!=0)
     std::cout << "system() returned error " << ret << std::endl;
 
-  // abort current process:
+  // terminate current process:
   exit (0);
   return 42;
 }

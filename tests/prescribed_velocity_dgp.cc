@@ -164,13 +164,13 @@ namespace aspect
    */
   template <int dim>
   void constrain_internal_velocities (const SimulatorAccess<dim> &simulator_access,
-                                      ConstraintMatrix &current_constraints)
+                                      AffineConstraints<double> &current_constraints)
   {
     if (prescribe_internal_velocities)
       {
         const std::vector< Point<dim> > points = get_unit_support_points_for_velocity(simulator_access);
         const Quadrature<dim> quadrature (points);
-        FEValues<dim> fe_values (simulator_access.get_fe(), quadrature, update_q_points);
+        FEValues<dim> fe_values (simulator_access.get_fe(), quadrature, update_quadrature_points);
         typename DoFHandler<dim>::active_cell_iterator cell;
 
         // Loop over all cells
@@ -279,7 +279,7 @@ namespace aspect
     signals.post_constraints_creation.connect (&constrain_internal_velocities<dim>);
   }
 
-  // Tell Aspect to send signals to the connector functions
+  // Tell ASPECT to send signals to the connector functions
   ASPECT_REGISTER_SIGNALS_PARAMETER_CONNECTOR(parameter_connector)
   ASPECT_REGISTER_SIGNALS_CONNECTOR(signal_connector<2>, signal_connector<3>)
 }

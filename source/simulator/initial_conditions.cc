@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -29,7 +29,6 @@
 #include <deal.II/base/function.h>
 
 #include <deal.II/lac/full_matrix.h>
-#include <deal.II/lac/constraint_matrix.h>
 #include <deal.II/grid/tria_iterator.h>
 #include <deal.II/dofs/dof_accessor.h>
 #include <deal.II/fe/fe_values.h>
@@ -91,21 +90,25 @@ namespace aspect
 
         std::vector<types::global_dof_index> local_dof_indices (finite_element.dofs_per_cell);
 
-        const VectorFunctionFromScalarFunctionObject<dim, double> &advf_init_function =
-          (advf.is_temperature()
-           ?
-           VectorFunctionFromScalarFunctionObject<dim, double>(std_cxx11::bind(&InitialTemperature::Manager<dim>::initial_temperature,
-                                                                               std_cxx11::ref(initial_temperature_manager),
-                                                                               std_cxx11::_1),
-                                                               introspection.component_indices.temperature,
-                                                               introspection.n_components)
-           :
-           VectorFunctionFromScalarFunctionObject<dim, double>(std_cxx11::bind(&InitialComposition::Manager<dim>::initial_composition,
-                                                                               std_cxx11::ref(initial_composition_manager),
-                                                                               std_cxx11::_1,
-                                                                               n-1),
-                                                               introspection.component_indices.compositional_fields[n-1],
-                                                               introspection.n_components));
+        const VectorFunctionFromScalarFunctionObject<dim, double> &advf_init_function
+          =
+            (advf.is_temperature()
+             ?
+             VectorFunctionFromScalarFunctionObject<dim, double>(
+               [&](const Point<dim> &p) -> double
+        {
+          return initial_temperature_manager.initial_temperature(p);
+        },
+        introspection.component_indices.temperature,
+        introspection.n_components)
+        :
+        VectorFunctionFromScalarFunctionObject<dim, double>(
+          [&](const Point<dim> &p) -> double
+        {
+          return initial_composition_manager.initial_composition(p, n-1);
+        },
+        introspection.component_indices.compositional_fields[n-1],
+        introspection.n_components));
 
         const ComponentMask advf_mask =
           (advf.is_temperature()
@@ -121,8 +124,7 @@ namespace aspect
                                  advf_mask);
 
         if (parameters.normalized_fields.size()>0 && n==1)
-          for (typename DoFHandler<dim>::active_cell_iterator cell = dof_handler.begin_active();
-               cell != dof_handler.end(); ++cell)
+          for (const auto &cell : dof_handler.active_cell_iterators())
             if (cell->is_locally_owned())
               {
                 fe_values.reinit (cell);
@@ -259,8 +261,7 @@ namespace aspect
 
     std::vector<types::global_dof_index> local_dof_indices (finite_element.dofs_per_cell);
 
-    for (typename DoFHandler<dim>::active_cell_iterator cell = dof_handler.begin_active();
-         cell != dof_handler.end(); ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
         {
           fe_values.reinit (cell);
@@ -300,8 +301,16 @@ namespace aspect
     // overwrite the relevant composition block only
     const unsigned int blockidx = advection_field.block_index(introspection);
     solution.block(blockidx) = particle_solution.block(blockidx);
-    old_solution.block(blockidx) = particle_solution.block(blockidx);
-    old_old_solution.block(blockidx) = particle_solution.block(blockidx);
+
+    // In the first timestep initialize all solution vectors with the initial
+    // particle solution, identical to the end of the
+    // Simulator<dim>::set_initial_temperature_and_compositional_fields ()
+    // function.
+    if (timestep_number == 0)
+      {
+        old_solution.block(blockidx) = particle_solution.block(blockidx);
+        old_old_solution.block(blockidx) = particle_solution.block(blockidx);
+      }
   }
 
 
@@ -343,12 +352,18 @@ namespace aspect
         // wants a function that represents all components of the
         // solution vector, so create such a function object
         // that is simply zero for all velocity components
+        auto lambda = [&](const Point<dim> &p) -> double
+        {
+          return adiabatic_conditions->pressure(p);
+        };
+
+        VectorFunctionFromScalarFunctionObject<dim> vector_function_object(
+          lambda,
+          pressure_comp,
+          introspection.n_components);
+
         VectorTools::interpolate (*mapping, dof_handler,
-                                  VectorFunctionFromScalarFunctionObject<dim> (std_cxx11::bind (&AdiabaticConditions::Interface<dim>::pressure,
-                                                                               std_cxx11::cref (*adiabatic_conditions),
-                                                                               std_cxx11::_1),
-                                                                               pressure_comp,
-                                                                               introspection.n_components),
+                                  vector_function_object,
                                   system_tmp,
                                   pressure_component_mask);
 
@@ -360,9 +375,9 @@ namespace aspect
       }
     else
       {
-        // implement the local projection for the discontinuous pressure
-        // element. this is only going to work if, indeed, the element
-        // is discontinuous
+        // Find the local projection for the discontinuous pressure
+        // element. This is only going to work if, indeed, the element
+        // is discontinuous.
         Assert (finite_element.base_element(introspection.base_elements.pressure).dofs_per_face == 0,
                 ExcNotImplemented());
 
@@ -370,76 +385,20 @@ namespace aspect
         system_tmp.reinit (system_rhs);
 
         QGauss<dim> quadrature(parameters.stokes_velocity_degree+1);
-        UpdateFlags update_flags = UpdateFlags(update_values   |
-                                               update_quadrature_points |
-                                               update_JxW_values);
 
-        FEValues<dim> fe_values (*mapping, finite_element, quadrature, update_flags);
-
-        const unsigned int
-        dofs_per_cell = fe_values.dofs_per_cell,
-        n_q_points    = fe_values.n_quadrature_points;
-
-        std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
-        Vector<double> cell_vector (dofs_per_cell);
-        Vector<double> local_projection (dofs_per_cell);
-        FullMatrix<double> local_mass_matrix (dofs_per_cell, dofs_per_cell);
-
-        std::vector<double> rhs_values(n_q_points);
-
-        ScalarFunctionFromFunctionObject<dim>
-        adiabatic_pressure (std_cxx11::bind (&AdiabaticConditions::Interface<dim>::pressure,
-                                             std_cxx11::cref(*adiabatic_conditions),
-                                             std_cxx11::_1));
-
-
-        typename DoFHandler<dim>::active_cell_iterator
-        cell = dof_handler.begin_active(),
-        endc = dof_handler.end();
-
-        for (; cell!=endc; ++cell)
-          if (cell->is_locally_owned())
-            {
-              cell->get_dof_indices (local_dof_indices);
-              fe_values.reinit(cell);
-
-              adiabatic_pressure.value_list (fe_values.get_quadrature_points(),
-                                             rhs_values);
-
-              cell_vector = 0;
-              local_mass_matrix = 0;
-              for (unsigned int point=0; point<n_q_points; ++point)
-                for (unsigned int i=0; i<dofs_per_cell; ++i)
-                  {
-                    if (finite_element.system_to_component_index(i).first == dim)
-                      cell_vector(i)
-                      +=
-                        rhs_values[point] *
-                        fe_values[introspection.extractors.pressure].value(i,point) *
-                        fe_values.JxW(point);
-
-                    // populate the local matrix; create the pressure mass matrix
-                    // in the pressure pressure block and the identity matrix
-                    // for all other variables so that the whole thing remains
-                    // invertible
-                    for (unsigned int j=0; j<dofs_per_cell; ++j)
-                      if ((finite_element.system_to_component_index(i).first == introspection.component_indices.pressure)
-                          &&
-                          (finite_element.system_to_component_index(j).first == introspection.component_indices.pressure))
-                        local_mass_matrix(j,i) += (fe_values[introspection.extractors.pressure].value(i,point) *
-                                                   fe_values[introspection.extractors.pressure].value(j,point) *
-                                                   fe_values.JxW(point));
-                      else if (i == j)
-                        local_mass_matrix(i,j) = 1;
-                  }
-
-              // now invert the local mass matrix and multiply it with the rhs
-              local_mass_matrix.gauss_jordan();
-              local_mass_matrix.vmult (local_projection, cell_vector);
-
-              // then set the global solution vector to the values just computed
-              cell->set_dof_values (local_projection, system_tmp);
-            }
+        Utilities::project_cellwise<dim,LinearAlgebra::BlockVector>(*mapping,
+                                                                    dof_handler,
+                                                                    introspection.component_indices.pressure,
+                                                                    quadrature,
+                                                                    [&](const typename DoFHandler<dim>::active_cell_iterator & /*cell*/,
+                                                                        const std::vector<Point<dim> > &q_points,
+                                                                        std::vector<double> &values) -> void
+        {
+          for (unsigned int i=0; i<values.size(); ++i)
+            values[i] = adiabatic_conditions->pressure(q_points[i]);
+          return;
+        },
+        system_tmp);
 
         old_solution.block(introspection.block_indices.pressure) = system_tmp.block(introspection.block_indices.pressure);
       }
@@ -466,4 +425,6 @@ namespace aspect
 
 
   ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
 }

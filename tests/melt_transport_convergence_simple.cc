@@ -45,7 +45,7 @@ namespace aspect
                             typename MaterialModel::Interface<dim>::MaterialModelOutputs &out) const
       {
         const unsigned int porosity_idx = this->introspection().compositional_index_for_name("porosity");
-        for (unsigned int i=0; i<in.position.size(); ++i)
+        for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
           {
             const double porosity = in.composition[i][porosity_idx];
             const double x = in.position[i](0);
@@ -66,11 +66,11 @@ namespace aspect
         // fill melt outputs if they exist
         aspect::MaterialModel::MeltOutputs<dim> *melt_out = out.template get_additional_output<aspect::MaterialModel::MeltOutputs<dim> >();
 
-        if (melt_out != NULL)
+        if (melt_out != nullptr)
           {
             const unsigned int porosity_idx = this->introspection().compositional_index_for_name("porosity");
 
-            for (unsigned int i=0; i<in.position.size(); ++i)
+            for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
               {
                 double porosity = in.composition[i][porosity_idx];
                 melt_out->compaction_viscosities[i] = std::exp(c * porosity);
@@ -235,13 +235,13 @@ namespace aspect
           cellwise_errors_p_c[i] = cellwise_errors_p_c_bar[i] * p_c_scale;
         }
 
-    const double u_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_u.norm_sqr(),this->get_mpi_communicator()));
-    const double p_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_p.norm_sqr(),this->get_mpi_communicator()));
-    const double p_f_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_p_f.norm_sqr(),this->get_mpi_communicator()));
-    const double p_c_bar_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_p_c_bar.norm_sqr(),this->get_mpi_communicator()));
-    const double p_c_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_p_c.norm_sqr(),this->get_mpi_communicator()));
-    const double poro_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_porosity.norm_sqr(),this->get_mpi_communicator()));
-    const double u_f_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_u_f.norm_sqr(),this->get_mpi_communicator()));
+    const double u_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_u, VectorTools::L2_norm);
+    const double p_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_p, VectorTools::L2_norm);
+    const double p_f_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_p_f, VectorTools::L2_norm);
+    const double p_c_bar_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_p_c_bar, VectorTools::L2_norm);
+    const double p_c_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_p_c, VectorTools::L2_norm);
+    const double poro_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_porosity, VectorTools::L2_norm);
+    const double u_f_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_u_f, VectorTools::L2_norm);
 
     std::ostringstream os;
     os << std::scientific << u_l2

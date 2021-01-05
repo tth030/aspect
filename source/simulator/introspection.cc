@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -26,7 +26,7 @@
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_dgp.h>
-#include <deal.II/base/std_cxx1x/tuple.h>
+#include <tuple>
 
 namespace aspect
 {
@@ -71,6 +71,8 @@ namespace aspect
       return b;
     }
 
+
+
     template <int dim>
     typename Introspection<dim>::BaseElements
     setup_base_elements (FEVariableCollection<dim> &fevs)
@@ -85,6 +87,8 @@ namespace aspect
       return base_elements;
     }
 
+
+
     template <int dim>
     typename Introspection<dim>::PolynomialDegree
     setup_polynomial_degree (const Parameters<dim> &parameters)
@@ -98,26 +102,30 @@ namespace aspect
       return polynomial_degree;
     }
 
+
+
     template <int dim>
-    std_cxx11::shared_ptr<FiniteElement<dim> >
+    std::shared_ptr<FiniteElement<dim> >
     new_FE_Q_or_DGP(const bool discontinuous,
                     const unsigned int degree)
     {
       if (discontinuous)
-        return std_cxx11::shared_ptr<FiniteElement<dim> >(new FE_DGP<dim>(degree));
+        return std::make_shared<FE_DGP<dim>>(degree);
       else
-        return std_cxx11::shared_ptr<FiniteElement<dim> >(new FE_Q<dim>(degree));
+        return std::make_shared<FE_Q<dim>>(degree);
     }
 
+
+
     template <int dim>
-    std_cxx11::shared_ptr<FiniteElement<dim> >
+    std::shared_ptr<FiniteElement<dim> >
     new_FE_Q_or_DGQ(const bool discontinuous,
                     const unsigned int degree)
     {
       if (discontinuous)
-        return std_cxx11::shared_ptr<FiniteElement<dim> >(new FE_DGQ<dim>(degree));
+        return std::make_shared<FE_DGQ<dim>>(degree);
       else
-        return std_cxx11::shared_ptr<FiniteElement<dim> >(new FE_Q<dim>(degree));
+        return std::make_shared<FE_Q<dim>>(degree);
     }
   }
 
@@ -133,18 +141,26 @@ namespace aspect
     const unsigned int n_velocity_blocks = parameters.use_direct_stokes_solver ? 0 : 1;
     variables.push_back(
       VariableDeclaration<dim>("velocity",
-                               std_cxx11::shared_ptr<FiniteElement<dim> >(
-                                 new FE_Q<dim>(parameters.stokes_velocity_degree)),
+                               std::make_shared<FE_Q<dim>>(parameters.stokes_velocity_degree),
                                dim,
                                n_velocity_blocks));
 
-    variables.push_back(
-      VariableDeclaration<dim>(
-        "pressure",
-        internal::new_FE_Q_or_DGP<dim>(parameters.use_locally_conservative_discretization,
-                                       parameters.stokes_velocity_degree-1),
-        1,
-        1));
+    if (parameters.use_equal_order_interpolation_for_stokes == false)
+      variables.push_back(
+        VariableDeclaration<dim>(
+          "pressure",
+          internal::new_FE_Q_or_DGP<dim>(parameters.use_locally_conservative_discretization,
+                                         parameters.stokes_velocity_degree-1),
+          1,
+          1));
+    else
+      variables.push_back(
+        VariableDeclaration<dim>(
+          "pressure",
+          std::shared_ptr<FiniteElement<dim> >(new FE_Q<dim>(parameters.stokes_velocity_degree)),
+          1,
+          1));
+
 
     variables.push_back(
       VariableDeclaration<dim>(
@@ -189,9 +205,11 @@ namespace aspect
   {}
 
 
+
   template <int dim>
   Introspection<dim>::~Introspection ()
   {}
+
 
 
   namespace
@@ -201,10 +219,12 @@ namespace aspect
     {
       std::vector<FEValuesExtractors::Scalar> x;
       for (unsigned int i=0; i<compositional_fields.size(); ++i)
-        x.push_back (FEValuesExtractors::Scalar(compositional_fields[i]));
+        x.emplace_back(compositional_fields[i]);
       return x;
     }
   }
+
+
 
   template <int dim>
   Introspection<dim>::Extractors::Extractors (const Introspection<dim>::ComponentIndices &component_indices)
@@ -214,6 +234,8 @@ namespace aspect
     temperature (component_indices.temperature),
     compositional_fields (make_extractor_sequence (component_indices.compositional_fields))
   {}
+
+
 
   namespace
   {
@@ -231,6 +253,8 @@ namespace aspect
     }
   }
 
+
+
   template <int dim>
   Introspection<dim>::ComponentMasks::ComponentMasks (FEVariableCollection<dim> &fevs)
     :
@@ -239,6 +263,7 @@ namespace aspect
     temperature (fevs.variable("temperature").component_mask),
     compositional_fields (make_component_mask_sequence (fevs.variable("compositions")))
   {}
+
 
 
   template <int dim>
@@ -254,6 +279,8 @@ namespace aspect
     return (it - composition_names.begin());
   }
 
+
+
   template <int dim>
   std::string
   Introspection<dim>::name_for_compositional_index (const unsigned int index) const
@@ -261,6 +288,16 @@ namespace aspect
     // make sure that what we get here is really an index of one of the compositional fields
     AssertIndexRange(index,composition_names.size());
     return composition_names[index];
+  }
+
+
+
+  template <int dim>
+  const std::vector<std::string> &
+  Introspection<dim>::get_composition_names () const
+  {
+    // Simply return the full list of composition names
+    return composition_names;
   }
 
   template <int dim>
@@ -273,6 +310,8 @@ namespace aspect
             :
             false);
   }
+
+
 
   template <int dim>
   bool
@@ -302,4 +341,6 @@ namespace aspect
   construct_default_variables (const Parameters<dim> &parameters);
 
   ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
 }

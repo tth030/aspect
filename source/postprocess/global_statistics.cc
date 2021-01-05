@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2017 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2017 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -30,25 +30,38 @@ namespace aspect
     void
     GlobalStatistics<dim>::initialize()
     {
-      this->get_signals().post_stokes_solver.connect(std_cxx11::bind(&aspect::Postprocess::GlobalStatistics<dim>::store_stokes_solver_history,
-                                                                     std_cxx11::ref(*this),
-                                                                     /* Drop first argument of signal*/
-                                                                     std_cxx11::_2,
-                                                                     std_cxx11::_3,
-                                                                     std_cxx11::_4,
-                                                                     std_cxx11::_5));
-      this->get_signals().post_advection_solver.connect(std_cxx11::bind(&aspect::Postprocess::GlobalStatistics<dim>::store_advection_solver_history,
-                                                                        std_cxx11::ref(*this),
-                                                                        /* Drop first argument of signal*/
-                                                                        std_cxx11::_2,
-                                                                        std_cxx11::_3,
-                                                                        std_cxx11::_4));
+      this->get_signals().post_stokes_solver.connect(
+        [&](const SimulatorAccess<dim> &/*simulator_access*/,
+            const unsigned int number_S_iterations,
+            const unsigned int number_A_iterations,
+            const SolverControl &solver_control_cheap,
+            const SolverControl &solver_control_expensive)
+      {
+        this->store_stokes_solver_history(number_S_iterations,
+                                          number_A_iterations,
+                                          solver_control_cheap,
+                                          solver_control_expensive);
+      });
+
+      this->get_signals().post_advection_solver.connect(
+        [&](const SimulatorAccess<dim> &/*simulator_access*/,
+            const bool solved_temperature_field,
+            const unsigned int compositional_index,
+            const SolverControl &solver_control)
+      {
+        this->store_advection_solver_history(solved_temperature_field,
+                                             compositional_index,
+                                             solver_control);
+      });
 
       // delete the data after the initial refinement steps, to not mix it up
       // with the first time step
       if (!this->get_parameters().run_postprocessors_on_initial_refinement)
-        this->get_signals().post_set_initial_state.connect(std_cxx11::bind(&aspect::Postprocess::GlobalStatistics<dim>::clear_data,
-                                                                           std_cxx11::ref(*this)));
+        this->get_signals().post_set_initial_state.connect(
+          [&] (const SimulatorAccess<dim> &)
+        {
+          this->clear_data();
+        });
     }
 
 
@@ -99,7 +112,7 @@ namespace aspect
           column_position = i;
 
       if (column_position == numbers::invalid_unsigned_int)
-        advection_iterations.push_back(std::make_pair(column_name,std::vector<unsigned int>(1,solver_control.last_step())));
+        advection_iterations.emplace_back(column_name,std::vector<unsigned int>(1,solver_control.last_step()));
       else
         advection_iterations[column_position].second.push_back(solver_control.last_step());
     }
@@ -209,7 +222,7 @@ namespace aspect
       // set global statistics about this time step
       statistics.add_value("Time step number", this->get_timestep_number());
 
-      if (this->get_parameters().convert_to_years == true)
+      if (this->convert_output_to_years() == true)
         {
           statistics.add_value("Time (years)", this->get_time() / year_in_seconds);
           statistics.set_precision("Time (years)", 12);
@@ -234,7 +247,7 @@ namespace aspect
       statistics.add_value("Number of mesh cells",
                            this->get_triangulation().n_global_active_cells());
 
-      unsigned int n_stokes_dofs = this->introspection().system_dofs_per_block[0];
+      types::global_dof_index n_stokes_dofs = this->introspection().system_dofs_per_block[0];
       if (this->introspection().block_indices.velocities != this->introspection().block_indices.pressure)
         n_stokes_dofs += this->introspection().system_dofs_per_block[this->introspection().block_indices.pressure];
 
@@ -243,7 +256,7 @@ namespace aspect
                            this->introspection().system_dofs_per_block[this->introspection().block_indices.temperature]);
       if (this->n_compositional_fields() > 0)
         statistics.add_value("Number of degrees of freedom for all compositions",
-                             this->n_compositional_fields()
+                             static_cast<types::global_dof_index>(this->n_compositional_fields())
                              * this->introspection().system_dofs_per_block[this->introspection().block_indices.compositional_fields[0]]);
     }
 

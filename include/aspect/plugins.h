@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -26,7 +26,7 @@
 
 #include <deal.II/base/utilities.h>
 #include <deal.II/base/parameter_handler.h>
-#include <deal.II/base/std_cxx11/tuple.h>
+#include <tuple>
 #include <deal.II/base/exceptions.h>
 
 #include <boost/core/demangle.hpp>
@@ -62,7 +62,7 @@ namespace aspect
     bool
     plugin_type_matches (const PluginType &object)
     {
-      return (dynamic_cast<const TestType *> (&object) != NULL);
+      return (dynamic_cast<const TestType *> (&object) != nullptr);
     }
 
     /**
@@ -97,7 +97,7 @@ namespace aspect
   {
     /**
      * A namespace for the definition of classes that have to do with the
-     * plugin architecture of Aspect.
+     * plugin architecture of ASPECT.
      */
     namespace Plugins
     {
@@ -163,12 +163,11 @@ namespace aspect
          * the run-time parameters this plugin takes from the parameter file.
          * - A function that can produce objects of this plugin type.
          */
-        typedef
-        std_cxx11::tuple<std::string,
-                  std::string,
-                  void ( *) (ParameterHandler &),
-                  InterfaceClass *( *) ()>
-                  PluginInfo;
+        using PluginInfo
+        = std::tuple<std::string,
+        std::string,
+        void ( *) (ParameterHandler &),
+        InterfaceClass *( *) ()>;
 
         /**
          * A pointer to a list of all registered plugins.
@@ -301,9 +300,9 @@ namespace aspect
       {
         // if any plugins have been registered, then delete
         // the list
-        if (plugins != 0)
+        if (plugins != nullptr)
           delete plugins;
-        plugins = 0;
+        plugins = nullptr;
       }
 
 
@@ -318,7 +317,7 @@ namespace aspect
       {
         // see if this is the first time we get into this
         // function and if so initialize the static member variable
-        if (plugins == 0)
+        if (plugins == nullptr)
           plugins = new std::list<PluginInfo>();
 
         // verify that the same name has not previously been
@@ -327,7 +326,7 @@ namespace aspect
         for (typename std::list<PluginInfo>::const_iterator
              p = plugins->begin();
              p != plugins->end(); ++p)
-          Assert (std_cxx11::get<0>(*p) != name,
+          Assert (std::get<0>(*p) != name,
                   ExcMessage ("A plugin with name <" + name + "> has "
                               "already been registered!"));
 
@@ -345,7 +344,7 @@ namespace aspect
       PluginList<InterfaceClass>::
       get_pattern_of_names ()
       {
-        Assert (plugins != 0,
+        Assert (plugins != nullptr,
                 ExcMessage ("No plugins registered!?"));
 
         // get all names and put them into a data structure that keeps
@@ -354,7 +353,7 @@ namespace aspect
         for (typename std::list<PluginInfo>::const_iterator
              p = plugins->begin();
              p != plugins->end(); ++p)
-          names.insert (std_cxx11::get<0>(*p));
+          names.insert (std::get<0>(*p));
 
         // now create a pattern from all of these sorted names
         std::string pattern_of_names;
@@ -385,10 +384,10 @@ namespace aspect
         for (typename std::list<PluginInfo>::const_iterator
              p = plugins->begin();
              p != plugins->end(); ++p)
-          names_and_descriptions[std_cxx11::get<0>(*p)] = std_cxx11::get<1>(*p);;
+          names_and_descriptions[std::get<0>(*p)] = std::get<1>(*p);;
 
         // then output it all
-        typename std::map<std::string,std::string>::const_iterator
+        std::map<std::string,std::string>::const_iterator
         p = names_and_descriptions.begin();
         while (true)
           {
@@ -422,13 +421,13 @@ namespace aspect
       PluginList<InterfaceClass>::
       declare_parameters (ParameterHandler &prm)
       {
-        Assert (plugins != 0,
+        Assert (plugins != nullptr,
                 ExcMessage ("No postprocessors registered!?"));
 
         for (typename std::list<PluginInfo>::const_iterator
              p = plugins->begin();
              p != plugins->end(); ++p)
-          (std_cxx11::get<2>(*p))(prm);
+          (std::get<2>(*p))(prm);
       }
 
 
@@ -440,7 +439,7 @@ namespace aspect
                      const std::string &documentation)
       {
         (void)documentation;
-        Assert (plugins != 0,
+        Assert (plugins != nullptr,
                 ExcMessage ("No postprocessors registered!?"));
         AssertThrow (name != "unspecified",
                      ExcMessage(std::string("A plugin must have a name!\n\n"
@@ -461,14 +460,14 @@ namespace aspect
 
         for (typename std::list<PluginInfo>::const_iterator p = plugins->begin();
              p != plugins->end(); ++p)
-          if (std_cxx11::get<0>(*p) == name)
+          if (std::get<0>(*p) == name)
             {
-              InterfaceClass *i = std_cxx11::get<3>(*p)();
+              InterfaceClass *i = std::get<3>(*p)();
               return i;
             }
 
         AssertThrow (false, ExcUnknownPlugin(name));
-        return 0;
+        return nullptr;
       }
 
 
@@ -519,7 +518,7 @@ namespace aspect
         plugin_map;
         for (typename std::list<PluginInfo>::const_iterator p = plugins->begin();
              p != plugins->end(); ++p)
-          plugin_map[std_cxx11::get<0>(*p)] = p;
+          plugin_map[std::get<0>(*p)] = p;
 
         // now output the information sorted by the plugin names
         for (typename std::map<std::string, typename std::list<PluginInfo>::const_iterator>::const_iterator
@@ -540,7 +539,7 @@ namespace aspect
             // next create a (symbolic) node name for this plugin. because
             // each plugin corresponds to a particular class, use the mangled
             // name of the class
-            std_cxx11::unique_ptr<InterfaceClass> instance (create_plugin (p->first, ""));
+            std::unique_ptr<InterfaceClass> instance (create_plugin (p->first, ""));
             const std::string node_name = typeid(*instance).name();
 
             // then output the whole shebang describing this node
@@ -562,9 +561,9 @@ namespace aspect
             // finally see if this plugin is derived from
             // SimulatorAccess; if so, draw an arrow from SimulatorAccess
             // also to the plugin's name
-            if (dynamic_cast<const SimulatorAccess<2>*>(instance.get()) != NULL
+            if (dynamic_cast<const SimulatorAccess<2>*>(instance.get()) != nullptr
                 ||
-                dynamic_cast<const SimulatorAccess<3>*>(instance.get()) != NULL)
+                dynamic_cast<const SimulatorAccess<3>*>(instance.get()) != nullptr)
               output_stream << "SimulatorAccess"
                             << " -> "
                             << node_name

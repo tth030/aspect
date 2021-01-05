@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -41,11 +41,23 @@ namespace aspect
       topo_model = const_cast<InitialTopographyModel::Interface<dim>*>(&this->get_initial_topography_model());
       // Check that initial topography is required.
       // If so, connect the initial topography function
-      // to the right signal.
-      if (dynamic_cast<InitialTopographyModel::ZeroTopography<dim>*>(topo_model) == 0)
-        this->get_signals().pre_set_initial_state.connect(std_cxx11::bind(&Box<dim>::topography,
-                                                                          std_cxx11::ref(*this),
-                                                                          std_cxx11::_1));
+      // to the right signals: It should be applied after
+      // the final initial adaptive refinement and after a restart.
+      if (Plugins::plugin_type_matches<InitialTopographyModel::ZeroTopography<dim>>(*topo_model) == false)
+        {
+          this->get_signals().pre_set_initial_state.connect(
+            [&](typename parallel::distributed::Triangulation<dim> &tria)
+          {
+            this->topography(tria);
+          }
+          );
+          this->get_signals().post_resume_load_user_data.connect(
+            [&](typename parallel::distributed::Triangulation<dim> &tria)
+          {
+            this->topography(tria);
+          }
+          );
+        }
     }
 
 
@@ -81,10 +93,12 @@ namespace aspect
     {
       // Here we provide GridTools with the function to displace vertices
       // in the vertical direction by an amount specified by the initial topography model
-      GridTools::transform(std_cxx11::bind(&Box<dim>::add_topography,
-                                           this,
-                                           std_cxx11::_1),
-                           grid);
+      GridTools::transform(
+        [&](const Point<dim> &p) -> Point<dim>
+      {
+        return this->add_topography(p);
+      },
+      grid);
 
       this->get_pcout() << "   Added initial topography to grid" << std::endl << std::endl;
     }
@@ -104,7 +118,7 @@ namespace aspect
       const double topo = topo_model->value(surface_point);
 
       // Compute the displacement of the z coordinate
-      const double ztopo = x_y_z[dim-1]/extents[dim-1] * topo;
+      const double ztopo = (x_y_z[dim-1] - box_origin[dim-1]) / extents[dim-1] * topo;
 
       // Compute the new point
       Point<dim> x_y_ztopo = x_y_z;
@@ -263,12 +277,13 @@ namespace aspect
     bool
     Box<dim>::point_is_in_domain(const Point<dim> &point) const
     {
-      AssertThrow(this->get_free_surface_boundary_indicators().size() == 0 ||
-                  this->get_timestep_number() == 0,
+      AssertThrow(!this->get_parameters().mesh_deformation_enabled ||
+                  this->simulator_is_past_initialization() == false,
                   ExcMessage("After displacement of the free surface, this function can no longer be used to determine whether a point lies in the domain or not."));
 
-      AssertThrow(dynamic_cast<const InitialTopographyModel::ZeroTopography<dim>*>(&this->get_initial_topography_model()) != 0,
-                  ExcMessage("After adding topography, this function can no longer be used to determine whether a point lies in the domain or not."));
+      AssertThrow(Plugins::plugin_type_matches<const InitialTopographyModel::ZeroTopography<dim>>(this->get_initial_topography_model()),
+                  ExcMessage("After adding topography, this function can no longer be used "
+                             "to determine whether a point lies in the domain or not."));
 
       for (unsigned int d = 0; d < dim; d++)
         if (point[d] > extents[d]+box_origin[d]+std::numeric_limits<double>::epsilon()*extents[d] ||
@@ -279,7 +294,7 @@ namespace aspect
     }
 
     template <int dim>
-    std_cxx11::array<double,dim>
+    std::array<double,dim>
     Box<dim>::cartesian_to_natural_coordinates(const Point<dim> &position_point) const
     {
       std::array<double,dim> position_array;
@@ -300,7 +315,7 @@ namespace aspect
 
     template <int dim>
     Point<dim>
-    Box<dim>::natural_to_cartesian_coordinates(const std_cxx11::array<double,dim> &position_tensor) const
+    Box<dim>::natural_to_cartesian_coordinates(const std::array<double,dim> &position_tensor) const
     {
       Point<dim> position_point;
       for (unsigned int i = 0; i < dim; i++)
@@ -308,6 +323,7 @@ namespace aspect
 
       return position_point;
     }
+
 
     template <int dim>
     void
@@ -318,27 +334,27 @@ namespace aspect
       {
         prm.enter_subsection("Box");
         {
-          prm.declare_entry ("X extent", "1",
-                             Patterns::Double (0),
-                             "Extent of the box in x-direction. Units: m.");
-          prm.declare_entry ("Y extent", "1",
-                             Patterns::Double (0),
-                             "Extent of the box in y-direction. Units: m.");
-          prm.declare_entry ("Z extent", "1",
-                             Patterns::Double (0),
+          prm.declare_entry ("X extent", "1.",
+                             Patterns::Double (0.),
+                             "Extent of the box in x-direction. Units: \\si{\\meter}.");
+          prm.declare_entry ("Y extent", "1.",
+                             Patterns::Double (0.),
+                             "Extent of the box in y-direction. Units: \\si{\\meter}.");
+          prm.declare_entry ("Z extent", "1.",
+                             Patterns::Double (0.),
                              "Extent of the box in z-direction. This value is ignored "
-                             "if the simulation is in 2d. Units: m.");
+                             "if the simulation is in 2d. Units: \\si{\\meter}.");
 
-          prm.declare_entry ("Box origin X coordinate", "0",
+          prm.declare_entry ("Box origin X coordinate", "0.",
                              Patterns::Double (),
-                             "X coordinate of box origin. Units: m.");
-          prm.declare_entry ("Box origin Y coordinate", "0",
+                             "X coordinate of box origin. Units: \\si{\\meter}.");
+          prm.declare_entry ("Box origin Y coordinate", "0.",
                              Patterns::Double (),
-                             "Y coordinate of box origin. Units: m.");
-          prm.declare_entry ("Box origin Z coordinate", "0",
+                             "Y coordinate of box origin. Units: \\si{\\meter}.");
+          prm.declare_entry ("Box origin Z coordinate", "0.",
                              Patterns::Double (),
                              "Z coordinate of box origin. This value is ignored "
-                             "if the simulation is in 2d. Units: m.");
+                             "if the simulation is in 2d. Units: \\si{\\meter}.");
 
           prm.declare_entry ("X repetitions", "1",
                              Patterns::Integer (1),
@@ -391,10 +407,11 @@ namespace aspect
 
           if (dim >= 3)
             {
-              box_origin[2] = prm.get_double ("Box origin Z coordinate");
-              extents[2] = prm.get_double ("Z extent");
-              periodic[2] = prm.get_bool ("Z periodic");
-              repetitions[2] = prm.get_integer ("Z repetitions");
+              // Use dim-1 instead of 2 to avoid compiler warning in 2d:
+              box_origin[dim-1] = prm.get_double ("Box origin Z coordinate");
+              extents[dim-1] = prm.get_double ("Z extent");
+              periodic[dim-1] = prm.get_bool ("Z periodic");
+              repetitions[dim-1] = prm.get_integer ("Z repetitions");
             }
         }
         prm.leave_subsection();

@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -34,7 +34,16 @@
 #include <deal.II/fe/fe.h>
 #include <deal.II/fe/mapping_q.h>
 
+#if !DEAL_II_VERSION_GTE(9,1,0)
+#  include <deal.II/lac/constraint_matrix.h>
+#else
+#  include <deal.II/lac/affine_constraints.h>
+#endif
 
+namespace WorldBuilder
+{
+  class World;
+}
 
 namespace aspect
 {
@@ -55,6 +64,11 @@ namespace aspect
     template <int dim> class Manager;
   }
 
+  namespace MaterialModel
+  {
+    template <int dim> class Interface;
+  }
+
   namespace InitialTemperature
   {
     template <int dim> class Manager;
@@ -64,6 +78,11 @@ namespace aspect
   namespace BoundaryTemperature
   {
     template <int dim> class Manager;
+    template <int dim> class Interface;
+  }
+
+  namespace BoundaryHeatFlux
+  {
     template <int dim> class Interface;
   }
 
@@ -95,6 +114,11 @@ namespace aspect
     template <int dim> class Interface;
   }
 
+  namespace MeshRefinement
+  {
+    template <int dim> class Manager;
+  }
+
   namespace AdiabaticConditions
   {
     template <int dim> class Interface;
@@ -106,9 +130,21 @@ namespace aspect
   }
 
   template <int dim> class MeltHandler;
-  template <int dim> class FreeSurfaceHandler;
+  template <int dim> class VolumeOfFluidHandler;
+
+  namespace MeshDeformation
+  {
+    template <int dim> class MeshDeformationHandler;
+  }
 
   template <int dim> class NewtonHandler;
+
+  template <int dim> class StokesMatrixFreeHandler;
+
+  namespace Particle
+  {
+    template <int dim> class World;
+  }
 
   /**
    * SimulatorAccess is a base class for different plugins like postprocessors.
@@ -358,9 +394,16 @@ namespace aspect
       /**
        * Returns the entropy viscosity on each locally owned cell as it is
        * used to stabilize the temperature equation.
+       *
+       * @param viscosity_per_cell Output vector with as many entries as
+       * active cells. Each entry corresponding to a locally owned active
+       * cell index will contain the artificial viscosity for this cell.
+       * @param skip_interior_cells A boolean flag. If set to true the function
+       * will only compute the artificial viscosity in cells at boundaries.
        */
       void
-      get_artificial_viscosity(Vector<float> &viscosity_per_cell) const;
+      get_artificial_viscosity(Vector<float> &viscosity_per_cell,
+                               const bool skip_interior_cells = false) const;
 
       /**
        * Returns the entropy viscosity on each locally owned cell as it is
@@ -436,7 +479,7 @@ namespace aspect
 
       /**
        * Return a reference to the vector that has the mesh velocity for
-       * simulations with a free surface.
+       * simulations with mesh deformation.
        *
        * @note In general the vector is a distributed vector; however, it
        * contains ghost elements for all locally relevant degrees of freedom.
@@ -546,12 +589,19 @@ namespace aspect
 
       /**
        * Return an reference to the manager of the boundary temperature models.
-       * This can then i.e. be used to get the names of the initial temperature
+       * This can then, for example, be used to get the names of the initial temperature
        * models used in a computation, or to compute the initial temperature
        * for a given position.
        */
       const BoundaryTemperature::Manager<dim> &
       get_boundary_temperature_manager () const;
+
+      /**
+       * Return a reference to the object that describes heat flux
+       * boundary conditions.
+       */
+      const BoundaryHeatFlux::Interface<dim> &
+      get_boundary_heat_flux () const;
 
       /**
        * Return whether the current model has a boundary composition object
@@ -574,7 +624,7 @@ namespace aspect
 
       /**
        * Return an reference to the manager of the boundary composition models.
-       * This can then i.e. be used to get the names of the boundary composition
+       * This can then, for example, be used to get the names of the boundary composition
        * models used in a computation, or to compute the boundary composition
        * for a given position.
        */
@@ -585,7 +635,7 @@ namespace aspect
        * Return a reference to the object that describes traction
        * boundary conditions.
        */
-      const std::map<types::boundary_id,std_cxx11::shared_ptr<BoundaryTraction::Interface<dim> > > &
+      const std::map<types::boundary_id,std::unique_ptr<BoundaryTraction::Interface<dim> > > &
       get_boundary_traction () const;
 
       /**
@@ -600,7 +650,7 @@ namespace aspect
 
       /**
        * Return a reference to the manager of the initial temperature models.
-       * This can then i.e. be used to get the names of the initial temperature
+       * This can then, for example, be used to get the names of the initial temperature
        * models used in a computation, or to compute the initial temperature
        * for a given position.
        */
@@ -617,7 +667,7 @@ namespace aspect
 
       /**
        * Return a pointer to the manager of the initial composition model.
-       * This can then i.e. be used to get the names of the initial composition
+       * This can then, for example, be used to get the names of the initial composition
        * models used in a computation.
        */
       const InitialComposition::Manager<dim> &
@@ -632,6 +682,13 @@ namespace aspect
 
       /**
        * Return a set of boundary indicators that describes which of the
+       * boundaries have a fixed heat flux.
+       */
+      const std::set<types::boundary_id> &
+      get_fixed_heat_flux_boundary_indicators () const;
+
+      /**
+       * Return a set of boundary indicators that describes which of the
        * boundaries have a fixed composition.
        */
       const std::set<types::boundary_id> &
@@ -639,23 +696,16 @@ namespace aspect
 
       /**
        * Return a set of boundary indicators that describes which of the
-       * boundaries have a free surface boundary condition
+       * boundaries have a mesh deformation boundary condition. Note that
+       * it does not specify which boundaries have which mesh deformation
+       * condition, only which boundaries have a mesh deformation condition.
        */
       const std::set<types::boundary_id> &
-      get_free_surface_boundary_indicators () const;
-
-      /**
-       * Return the map of prescribed_boundary_velocity
-       *
-       * @deprecated: Use get_boundary_velocity_manager() instead.
-       */
-      DEAL_II_DEPRECATED
-      const std::map<types::boundary_id,std_cxx11::shared_ptr<BoundaryVelocity::Interface<dim> > >
-      get_prescribed_boundary_velocity () const;
+      get_mesh_deformation_boundary_indicators () const;
 
       /**
        * Return an reference to the manager of the boundary velocity models.
-       * This can then i.e. be used to get the names of the boundary velocity
+       * This can then, for example, be used to get the names of the boundary velocity
        * models used in a computation, or to compute the boundary velocity
        * for a given position.
        */
@@ -664,11 +714,20 @@ namespace aspect
 
       /**
        * Return a pointer to the manager of the heating model.
-       * This can then i.e. be used to get the names of the heating models
+       * This can then, for example, be used to get the names of the heating models
        * used in a computation.
        */
       const HeatingModel::Manager<dim> &
       get_heating_model_manager () const;
+
+      /**
+       * Return a reference to the manager of the mesh refinement strategies.
+       * this can then, for example, be used to get the names of the active refinement
+       * strategies for such purposes as confirming that a particular one has
+       * been included.
+       */
+      const MeshRefinement::Manager<dim> &
+      get_mesh_refinement_manager () const;
 
       /**
        * Return a reference to the melt handler.
@@ -677,18 +736,34 @@ namespace aspect
       get_melt_handler () const;
 
       /**
+       * Return a reference to the VolumeOfFluid handler.
+       */
+      const VolumeOfFluidHandler<dim> &
+      get_volume_of_fluid_handler () const;
+
+      /**
        * Return a reference to the Newton handler that controls the Newton
        * iteration to resolve nonlinearities.
        */
       const NewtonHandler<dim> &
       get_newton_handler () const;
-
+#ifdef ASPECT_WITH_WORLD_BUILDER
       /**
-       * Return a reference to the free surface handler. This function will
-       * throw an exception if no free surface is activated.
+       * Return a reference to the world builder that controls the setup of
+       * initial conditions.
+       *
+       * This call will only succeed if ASPECT was configured to use
+       * the WorldBuilder.
        */
-      const FreeSurfaceHandler<dim> &
-      get_free_surface_handler () const;
+      const WorldBuilder::World &
+      get_world_builder () const;
+#endif
+      /**
+       * Return a reference to the mesh deformation handler. This function will
+       * throw an exception if mesh deformation is not activated.
+       */
+      const MeshDeformation::MeshDeformationHandler<dim> &
+      get_mesh_deformation_handler () const;
 
       /**
        * Return a reference to the lateral averaging object owned
@@ -702,14 +777,42 @@ namespace aspect
        * Return a pointer to the object that describes the DoF
        * constraints for the time step we are currently solving.
        */
-      const ConstraintMatrix &
-      get_current_constraints() const;
+      const AffineConstraints<double> &
+      get_current_constraints () const;
 
       /**
-       * Return whether or not the current object has been initialized by providing it with
-       * a pointer to a Simulator class object.
+       * Return whether the Simulator object has been completely initialized
+       * and has started to run its time stepping loop.
+       *
+       * This function is useful to determine in a plugin whether some
+       * of the information one can query about the Simulator can be trusted
+       * because it has already been set up completely. For example,
+       * while the Simulator is being
+       * set up, plugins may already have access to it via the current
+       * SimulatorAccess object, but data such as the current time, the
+       * time step number, etc, may all still be in a state that is not
+       * reliable since it may not have been initialized at that time. (As
+       * an example, at the very beginning of the Simulator object's existence,
+       * the time step number is set to numbers::invalid_unsigned_int, and
+       * only when the time step loop is started is it set to a valid
+       * value). Similar examples are that at some point the Simulator
+       * sets the solution vector to the correct size, but only at a later
+       * time (though before the time stepping starts), the *contents* of
+       * the solution vector are set based on the initial conditions
+       * specified in the input file.
+       *
+       * Only when this function returns @p true is all of the information
+       * returned by the SimulatorAccess object reliable and correct.
+       *
+       * @note This function returns @p true starting with the moment where the
+       *   Simulator starts the time stepping loop. However, it may
+       *   temporarily revert to returning @p false if, for example,
+       *   the Simulator does the initial mesh refinement steps where
+       *   it starts the time loop, but then goes back to
+       *   initialization steps (mesh refinement, interpolation of initial
+       *   conditions, etc.) before re-starting the time loop.
        */
-      bool simulator_is_initialized () const;
+      bool simulator_is_past_initialization () const;
 
       /**
        * Return the value used for rescaling the pressure in the linear
@@ -766,7 +869,7 @@ namespace aspect
        * no postprocessor of this type has been selected in the input
        * file (or, has been required by another postprocessor using the
        * Postprocess::Interface::required_other_postprocessors()
-       * mechanism), then the function returns a NULL pointer.
+       * mechanism), then the function returns a nullptr.
        *
        * @deprecated Use get_postprocess_manager().has_matching_postprocessor()
        * and get_postprocess_manager().get_matching_postprocessor() instead.
@@ -781,6 +884,34 @@ namespace aspect
        */
       const Postprocess::Manager<dim> &
       get_postprocess_manager () const;
+
+      /**
+       * Returns a const reference to the particle world, in case anyone
+       * wants to query something about particles.
+       */
+      const Particle::World<dim> &
+      get_particle_world() const;
+
+      /**
+       * Returns a reference to the particle world, in case anyone wants to
+       * change something within the particle world. Use with care, usually
+       * you want to only let the functions within the particle subsystem
+       * change member variables of the particle world.
+       */
+      Particle::World<dim> &
+      get_particle_world();
+
+      /**
+       *  Return true if using the block GMG Stokes solver.
+       */
+      bool is_stokes_matrix_free();
+
+      /**
+       * Return a reference to the StokesMatrixFreeHandler that controls the
+       * matrix-free Stokes solver.
+       */
+      const StokesMatrixFreeHandler<dim> &
+      get_stokes_matrix_free () const;
 
       /** @} */
 
@@ -800,7 +931,7 @@ namespace aspect
     if (get_postprocess_manager().template has_matching_postprocessor<PostprocessorType>())
       return &get_postprocess_manager().template get_matching_postprocessor<PostprocessorType>();
 
-    return NULL;
+    return nullptr;
   }
 }
 

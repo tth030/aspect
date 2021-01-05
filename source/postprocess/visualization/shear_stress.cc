@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -30,6 +30,16 @@ namespace aspect
     namespace VisualizationPostprocessors
     {
       template <int dim>
+      ShearStress<dim>::
+      ShearStress ()
+        :
+        DataPostprocessorTensor<dim> ("shear_stress",
+                                      update_values | update_gradients | update_quadrature_points)
+      {}
+
+
+
+      template <int dim>
       void
       ShearStress<dim>::
       evaluate_vector_field(const DataPostprocessorInputs::Vector<dim> &input_data,
@@ -37,7 +47,7 @@ namespace aspect
       {
         const unsigned int n_quadrature_points = input_data.solution_values.size();
         Assert (computed_quantities.size() == n_quadrature_points,    ExcInternalError());
-        Assert ((computed_quantities[0].size() == SymmetricTensor<2,dim>::n_independent_components),
+        Assert ((computed_quantities[0].size() == Tensor<2,dim>::n_independent_components),
                 ExcInternalError());
         Assert (input_data.solution_values[0].size() == this->introspection().n_components,   ExcInternalError());
         Assert (input_data.solution_gradients[0].size() == this->introspection().n_components,  ExcInternalError());
@@ -54,7 +64,7 @@ namespace aspect
         for (unsigned int q=0; q<n_quadrature_points; ++q)
           {
             const SymmetricTensor<2,dim> strain_rate = in.strain_rate[q];
-            const SymmetricTensor<2,dim> compressible_strain_rate
+            const SymmetricTensor<2,dim> deviatoric_strain_rate
               = (this->get_material_model().is_compressible()
                  ?
                  strain_rate - 1./3 * trace(strain_rate) * unit_symmetric_tensor<dim>()
@@ -63,62 +73,20 @@ namespace aspect
 
             const double eta = out.viscosities[q];
 
-            const SymmetricTensor<2,dim> shear_stress = 2*eta*compressible_strain_rate;
-            for (unsigned int i=0; i<SymmetricTensor<2,dim>::n_independent_components; ++i)
-              computed_quantities[q](i) = shear_stress[shear_stress.unrolled_to_component_indices(i)];
-          }
-      }
+            // Compressive stress is positive in geoscience applications
+            const SymmetricTensor<2,dim> shear_stress = -2.*eta*deviatoric_strain_rate;
 
-
-      template <int dim>
-      std::vector<std::string>
-      ShearStress<dim>::get_names () const
-      {
-        std::vector<std::string> names;
-        switch (dim)
-          {
-            case 2:
-              names.push_back ("shear_stress_xx");
-              names.push_back ("shear_stress_yy");
-              names.push_back ("shear_stress_xy");
-              break;
-
-            case 3:
-              names.push_back ("shear_stress_xx");
-              names.push_back ("shear_stress_yy");
-              names.push_back ("shear_stress_zz");
-              names.push_back ("shear_stress_xy");
-              names.push_back ("shear_stress_xz");
-              names.push_back ("shear_stress_yz");
-              break;
-
-            default:
-              Assert (false, ExcNotImplemented());
+            for (unsigned int d=0; d<dim; ++d)
+              for (unsigned int e=0; e<dim; ++e)
+                computed_quantities[q][Tensor<2,dim>::component_to_unrolled_index(TableIndices<2>(d,e))]
+                  = shear_stress[d][e];
           }
 
-        return names;
+        // average the values if requested
+        const auto &viz = this->get_postprocess_manager().template get_matching_postprocessor<Postprocess::Visualization<dim> >();
+        if (!viz.output_pointwise_stress_and_strain())
+          average_quantities(computed_quantities);
       }
-
-
-      template <int dim>
-      std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      ShearStress<dim>::get_data_component_interpretation () const
-      {
-        return
-          std::vector<DataComponentInterpretation::DataComponentInterpretation>
-          (SymmetricTensor<2,dim>::n_independent_components,
-           DataComponentInterpretation::component_is_scalar);
-      }
-
-
-
-      template <int dim>
-      UpdateFlags
-      ShearStress<dim>::get_needed_update_flags () const
-      {
-        return update_gradients | update_values | update_q_points;
-      }
-
     }
   }
 }
@@ -136,13 +104,14 @@ namespace aspect
                                                   "A visualization output object that generates output "
                                                   "for the 3 (in 2d) or 6 (in 3d) components of the shear stress "
                                                   "tensor, i.e., for the components of the tensor "
-                                                  "$2\\eta\\varepsilon(\\mathbf u)$ "
+                                                  "$-2\\eta\\varepsilon(\\mathbf u)$ "
                                                   "in the incompressible case and "
-                                                  "$2\\eta\\left[\\varepsilon(\\mathbf u)-"
+                                                  "$-2\\eta\\left[\\varepsilon(\\mathbf u)-"
                                                   "\\tfrac 13(\\textrm{tr}\\;\\varepsilon(\\mathbf u))\\mathbf I\\right]$ "
                                                   "in the compressible case. The shear "
                                                   "stress differs from the full stress tensor "
-                                                  "by the absence of the pressure.")
+                                                  "by the absence of the pressure. Note that the convention "
+                                                  "of positive compressive stress is followed. ")
     }
   }
 }

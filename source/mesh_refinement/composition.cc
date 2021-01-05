@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -33,7 +33,7 @@ namespace aspect
     Composition<dim>::execute(Vector<float> &indicators) const
     {
       AssertThrow (this->n_compositional_fields() >= 1,
-                   ExcMessage ("This refinement criterion can not be used when no "
+                   ExcMessage ("This refinement criterion cannot be used when no "
                                "compositional fields are active!"));
       indicators = 0;
       Vector<float> this_indicator (indicators.size());
@@ -45,11 +45,11 @@ namespace aspect
           KellyErrorEstimator<dim>::estimate (this->get_mapping(),
                                               this->get_dof_handler(),
                                               quadrature,
-                                              typename FunctionMap<dim>::type(),
+                                              std::map<types::boundary_id,const Function<dim>*>(),
                                               this->get_solution(),
                                               this_indicator,
                                               this->introspection().component_masks.compositional_fields[c],
-                                              0,
+                                              nullptr,
                                               0,
                                               this->get_triangulation().locally_owned_subdomain());
           // compute indicators += c*this_indicator:
@@ -68,9 +68,9 @@ namespace aspect
         {
           prm.declare_entry("Compositional field scaling factors",
                             "",
-                            Patterns::List (Patterns::Double(0)),
+                            Patterns::List (Patterns::Double (0.)),
                             "A list of scaling factors by which every individual compositional "
-                            "field will be multiplied by. If only a single compositional "
+                            "field will be multiplied. If only a single compositional "
                             "field exists, then this parameter has no particular meaning. "
                             "On the other hand, if multiple criteria are chosen, then these "
                             "factors are used to weigh the various indicators relative to "

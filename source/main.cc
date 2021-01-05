@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -42,6 +42,16 @@
 #  endif
 #endif
 
+// This define has to be in exactly one translation unit and sets up the catch testing framework
+#define CATCH_CONFIG_RUNNER
+
+// work-around for clang 6 error:
+// "error: no member named 'uncaught_exceptions' in namespace 'std'"
+// see https://github.com/catchorg/Catch2/issues/1201
+#define CATCH_INTERNAL_CONFIG_NO_CPP17_UNCAUGHT_EXCEPTIONS
+#define CATCH_CONFIG_NO_CPP17_UNCAUGHT_EXCEPTIONS
+
+#include <catch.hpp>
 
 
 // get the value of a particular parameter from the contents of the input
@@ -109,20 +119,65 @@ get_last_value_of_parameter(const std::string &parameters,
 }
 
 
-// extract the dimension in which to run ASPECT from the
-// the contents of the parameter file. this is something that
+// Extract the dimension in which to run ASPECT from the
+// the contents of the parameter file. This is something that
 // we need to do before processing the parameter file since we
 // need to know whether to use the dim=2 or dim=3 instantiation
-// of the main classes
+// of the main classes.
+//
+// This function is essentially the first part of ASPECT to look at the input
+// file, so if something is wrong with it, this is the place to generate good
+// error messages.
 unsigned int
 get_dimension(const std::string &parameters)
 {
   const std::string dimension = get_last_value_of_parameter(parameters, "Dimension");
   if (dimension.size() > 0)
-    return dealii::Utilities::string_to_int (dimension);
+    {
+      // A common problem is that people have .prm files that were generated
+      // on Windows, but then run this on Linux where the line endings are
+      // different. This is pernicious because it means that the conversion
+      // of a string such as "2\r" to an integer fails, but if we print
+      // this string, it comes out completely garbled because it contains
+      // a carriage-return without a newline -- so the error message looks
+      // like this:
+      //
+      //    >.  While reading the dimension from the input file, ASPECT found a string that can not be converted to an integer: <2
+      //
+      // Note how the end of the error message overwrites the beginning
+      // of the line.
+      //
+      // To avoid this kind of error, specifically test up front that the
+      // text in question does not contain '\r' characters. If we are on
+      // linux, then this kind of character would means that the line endings
+      // are wrong. On the other hand, if we are on windows, then the
+      // getline command we have used in finding 'dimension' would have
+      // filtered it out. So its presence points to a problem.
+
+      AssertThrow (dimension.find('\r') == std::string::npos,
+                   dealii::ExcMessage ("It appears that your input file uses Windows-style "
+                                       "line endings ('\\r\\n') but you are running on a system where "
+                                       "the C++ run time environment expects input files to have "
+                                       "Unix-style line endings ('\\n'). You need to convert your "
+                                       "input file to use the correct line endings before running "
+                                       "ASPECT with it."));
+      try
+        {
+          return dealii::Utilities::string_to_int (dimension);
+        }
+      catch (...)
+        {
+          AssertThrow (false,
+                       dealii::ExcMessage("While reading the dimension from the input file, "
+                                          "ASPECT found a string that can not be converted to "
+                                          "an integer: <" + dimension + ">."));
+          return 0; // we should never get here.
+        }
+    }
   else
     return 2;
 }
+
 
 
 #if ASPECT_USE_SHARED_LIBS==1
@@ -151,10 +206,10 @@ void validate_shared_lib_list (const bool before_loading_shared_libs)
 
   // find everything that is interesting
   std::set<std::string> dealii_shared_lib_names;
-  for (std::set<std::string>::const_iterator p = shared_lib_names.begin();
-       p != shared_lib_names.end(); ++p)
-    if (p->find ("libdeal_II") != std::string::npos)
-      dealii_shared_lib_names.insert (*p);
+  for (const auto &p : shared_lib_names)
+    if (p.find ("libdeal_II") != std::string::npos ||
+        p.find ("libdeal.ii") != std::string::npos)
+      dealii_shared_lib_names.insert (p);
 
   // produce an error if we load deal.II more than once
   if (dealii_shared_lib_names.size() != 1)
@@ -163,9 +218,8 @@ void validate_shared_lib_list (const bool before_loading_shared_libs)
       error << "........................................................\n"
             << "ASPECT currently links against different versions of the\n"
             << "deal.II library, namely the ones at these locations:\n";
-      for (std::set<std::string>::const_iterator p = dealii_shared_lib_names.begin();
-           p != dealii_shared_lib_names.end(); ++p)
-        error << "  " << *p << '\n';
+      for (const auto &p : dealii_shared_lib_names)
+        error << "  " << p << '\n';
       error << "This can not work.\n\n";
 
       if (before_loading_shared_libs)
@@ -222,17 +276,17 @@ void possibly_load_shared_libs (const std::string &parameters)
       const std::vector<std::string>
       shared_libs_list = Utilities::split_string_list (shared_libs);
 
-      for (unsigned int i=0; i<shared_libs_list.size(); ++i)
+      for (const auto &shared_lib : shared_libs_list)
         {
           if (Utilities::MPI::this_mpi_process (MPI_COMM_WORLD) == 0)
             std::cout << "Loading shared library <"
-                      << shared_libs_list[i]
+                      << shared_lib
                       << ">" << std::endl;
 
-          void *handle = dlopen (shared_libs_list[i].c_str(), RTLD_LAZY);
-          AssertThrow (handle != NULL,
+          void *handle = dlopen (shared_lib.c_str(), RTLD_LAZY);
+          AssertThrow (handle != nullptr,
                        ExcMessage (std::string("Could not successfully load shared library <")
-                                   + shared_libs_list[i] + ">. The operating system reports "
+                                   + shared_lib + ">. The operating system reports "
                                    + "that the error is this: <"
                                    + dlerror() + ">."));
 
@@ -273,9 +327,11 @@ void possibly_load_shared_libs (const std::string &parameters)
     }
 }
 
-/*
- * Current implementation for reading from stdin requires use of a std::string,
- * so this function will read until the end of the stream
+
+/**
+ * Read until we reach the end of the given stream, and return the contents
+ * so obtained in a std::string object that contains the individual
+ * lines read separated by `\n` characters.
  */
 std::string
 read_until_end (std::istream &input)
@@ -294,7 +350,7 @@ read_until_end (std::istream &input)
 
 
 /**
- * Takes the name of a parameter file and return all parameters in that file
+ * Take the name of a parameter file and return all parameters in that file
  * as a string. If @p parameter_file_name is "--" read the parameters from
  * std::cin instead.
  */
@@ -311,9 +367,18 @@ read_parameter_file(const std::string &parameter_file_name)
       std::ifstream parameter_file(parameter_file_name.c_str());
       if (!parameter_file)
         {
+          if (parameter_file_name=="parameter-file.prm"
+              || parameter_file_name=="parameter_file.prm")
+            {
+              std::cerr << "***          You should not take everything literally!          ***\n"
+                        << "*** Please pass the name of an existing parameter file instead. ***" << std::endl;
+              exit(1);
+            }
+
           if (i_am_proc_0)
-            AssertThrow(false, ExcMessage (std::string("Input parameter file <")
-                                           + parameter_file_name + "> not found."));
+            std::cerr << "Error: Input parameter file <" << parameter_file_name << "> not found."
+                      << std::endl;
+          throw aspect::QuietException();
           return "";
         }
 
@@ -331,14 +396,16 @@ read_parameter_file(const std::string &parameter_file_name)
         {
           input_as_string = read_until_end (std::cin);
           int size = input_as_string.size()+1;
-          MPI_Bcast (&size,
-                     1,
-                     MPI_INT,
-                     /*root=*/0, MPI_COMM_WORLD);
-          MPI_Bcast (const_cast<char *>(input_as_string.c_str()),
-                     size,
-                     MPI_CHAR,
-                     /*root=*/0, MPI_COMM_WORLD);
+          int ierr = MPI_Bcast (&size,
+                                1,
+                                MPI_INT,
+                                /*root=*/0, MPI_COMM_WORLD);
+          AssertThrowMPI(ierr);
+          ierr = MPI_Bcast (const_cast<char *>(input_as_string.c_str()),
+                            size,
+                            MPI_CHAR,
+                            /*root=*/0, MPI_COMM_WORLD);
+          AssertThrowMPI(ierr);
         }
       else
         {
@@ -347,22 +414,19 @@ read_parameter_file(const std::string &parameter_file_name)
           // text in, get it from processor 0, and copy it to
           // input_as_string
           int size;
-          MPI_Bcast (&size, 1,
-                     MPI_INT,
-                     /*root=*/0, MPI_COMM_WORLD);
+          int ierr = MPI_Bcast (&size, 1,
+                                MPI_INT,
+                                /*root=*/0, MPI_COMM_WORLD);
+          AssertThrowMPI(ierr);
 
-          char *p = new char[size];
-          MPI_Bcast (p, size,
-                     MPI_CHAR,
-                     /*root=*/0, MPI_COMM_WORLD);
-          input_as_string = p;
-          delete[] p;
+          std::vector<char> p (size);
+          ierr = MPI_Bcast (p.data(), size,
+                            MPI_CHAR,
+                            /*root=*/0, MPI_COMM_WORLD);
+          AssertThrowMPI(ierr);
+          input_as_string = p.data();
         }
     }
-
-  // Replace $ASPECT_SOURCE_DIR in the input so that include statements
-  // like "include $ASPECT_SOURCE_DIR/tests/bla.prm" work.
-  input_as_string = aspect::Utilities::expand_ASPECT_SOURCE_DIR(input_as_string);
 
   return input_as_string;
 }
@@ -407,7 +471,8 @@ parse_parameters (const std::string &input_as_string,
   // so, do the broadcast in integers
   {
     int isuccess = (success ? 1 : 0);
-    MPI_Bcast (&isuccess, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    const int ierr = MPI_Bcast (&isuccess, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    AssertThrowMPI(ierr);
     success = (isuccess == 1);
   }
 
@@ -438,23 +503,17 @@ parse_parameters (const std::string &input_as_string,
  */
 void print_help()
 {
-  std::cout << "Usage: ./aspect [args] <parameter_file.prm>   (to read from an input file)"
-            << std::endl
-            << "    or ./aspect [args] --                     (to read parameters from stdin)"
-            << std::endl
+  std::cout << "Usage: ./aspect [args] <parameter_file.prm>   (to read from an input file)\n"
+            << "    or ./aspect [args] --                     (to read parameters from stdin)\n"
             << std::endl;
-  std::cout << "    optional arguments [args]:"
-            << std::endl
-            << "       -h, --help             (for this usage help)"
-            << std::endl
-            << "       -v, --version          (for information about library versions)"
-            << std::endl
-            << "       -j, --threads          (to use multi-threading)"
-            << std::endl
-            << "       --output-xml           (print parameters in xml format to standard output and exit)"
-            << std::endl
-            << "       --output-plugin-graph  (write a representation of all plugins to standard output and exit)"
-            << std::endl
+  std::cout << "    optional arguments [args]:\n"
+            << "       -h, --help             (for this usage help)\n"
+            << "       -v, --version          (for information about library versions)\n"
+            << "       -j, --threads          (to use multi-threading)\n"
+            << "       --output-xml           (print parameters in xml format to standard output and exit)\n"
+            << "       --output-plugin-graph  (write a representation of all plugins to standard output and exit)\n"
+            << "       --validate             (parse parameter file and exit or report errors)\n"
+            << "       --test                 (run the unit tests from unit_tests/, run --test -h for more info)\n"
             << std::endl;
 }
 
@@ -491,15 +550,44 @@ void signal_handler(int signal)
 
 template<int dim>
 void
-run_simulator(const std::string &input_as_string,
+run_simulator(const std::string &raw_input_as_string,
+              const std::string &input_as_string,
               const bool output_xml,
-              const bool output_plugin_graph)
+              const bool output_plugin_graph,
+              const bool validate_only)
 {
   using namespace dealii;
 
   ParameterHandler prm;
   const bool i_am_proc_0 = (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0);
   aspect::Simulator<dim>::declare_parameters(prm);
+
+  if (validate_only)
+    {
+      try
+        {
+          parse_parameters (input_as_string, prm);
+        }
+      catch (...)
+        {
+          throw aspect::QuietException();
+        }
+      if (i_am_proc_0)
+        std::cout << "The provided parameter file is valid."
+                  "\n\n"
+                  "Note: This validation only checks parameter file syntax errors, like typos\n"
+                  "in keywords or parameter names, and that each parameter value satisfies a\n"
+                  "basic check by itself. However, it may miss more nuanced errors that\n"
+                  "are only checked when the model actually begins running. In particular,\n"
+                  "checks that involve two or more parameters can not be verified at this\n"
+                  "stage of an ASPECT run. Examples for such errors that can not already\n"
+                  "be reported here are: (i) That every boundary is assigned exactly one type\n"
+                  "of boundary condition; (ii) that parameters that take a list with values for\n"
+                  "each composition field receive a list of the correct size."
+                  << std::endl;
+      return;
+    }
+
   parse_parameters (input_as_string, prm);
 
   if (output_xml)
@@ -509,14 +597,28 @@ run_simulator(const std::string &input_as_string,
     }
   else if (output_plugin_graph)
     {
-      aspect::Simulator<dim> flow_problem(MPI_COMM_WORLD, prm);
+      aspect::Simulator<dim> simulator(MPI_COMM_WORLD, prm);
       if (i_am_proc_0)
-        flow_problem.write_plugin_graph (std::cout);
+        simulator.write_plugin_graph (std::cout);
     }
   else
     {
-      aspect::Simulator<dim> flow_problem(MPI_COMM_WORLD, prm);
-      flow_problem.run();
+      aspect::Simulator<dim> simulator(MPI_COMM_WORLD, prm);
+      if (i_am_proc_0)
+        {
+          // write create output/original.prm containing exactly what we got
+          // started with:
+          std::string output_directory = prm.get ("Output directory");
+          if (output_directory.size() == 0)
+            output_directory = "./";
+          else if (output_directory[output_directory.size()-1] != '/')
+            output_directory += "/";
+
+          std::ofstream file(output_directory + "original.prm");
+          file << raw_input_as_string;
+        }
+
+      simulator.run();
     }
 }
 
@@ -543,6 +645,8 @@ int main (int argc, char *argv[])
   bool output_version      = false;
   bool output_help         = false;
   bool use_threads         = false;
+  bool run_unittests       = false;
+  bool validate_only       = false;
   int current_argument = 1;
 
   // Loop over all command line arguments. Handle a number of special ones
@@ -572,7 +676,21 @@ int main (int argc, char *argv[])
         }
       else if (arg=="-j" || arg =="--threads")
         {
+#ifdef ASPECT_USE_PETSC
+          std::cerr << "Using multiple threads (using -j) is not supported when using PETSc for linear algebra. Exiting." << std::endl;
+          return -1;
+#else
           use_threads = true;
+#endif
+        }
+      else if (arg == "--test")
+        {
+          run_unittests = true;
+          break;
+        }
+      else if (arg == "--validate")
+        {
+          validate_only = true;
         }
       else
         {
@@ -584,13 +702,36 @@ int main (int argc, char *argv[])
         }
     }
 
+  // There might be remaining arguments for PETSc, only hand those over to
+  // the MPI initialization, but not the ones we parsed above.
+  int n_remaining_arguments = argc - current_argument;
+  char **remaining_arguments = (n_remaining_arguments > 0) ? &argv[current_argument] : nullptr;
+
   try
     {
       // Note: we initialize this class inside the try/catch block and not
       // before, so that the destructor of this instance can react if we are
       // currently unwinding the stack if an unhandled exception is being
       // thrown to avoid MPI deadlocks.
-      Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, use_threads ? numbers::invalid_unsigned_int : 1);
+      Utilities::MPI::MPI_InitFinalize mpi_initialization(n_remaining_arguments, remaining_arguments, use_threads ? numbers::invalid_unsigned_int : 1);
+
+      if (run_unittests)
+        {
+          // Construct new_argc, new_argv from argc, argv for catch without
+          // the "--test" arg, so we can control catch from the command
+          // line. It turns out catch needs argv[0] to be the executable name
+          // so we can not use remaining_arguments from above.
+          int new_argc = n_remaining_arguments + 1;
+          std::vector<char *> args; // use to construct a new argv of type char **
+          args.emplace_back(argv[0]);
+          for (int i=0; i<n_remaining_arguments; ++i)
+            args.emplace_back(argv[i+current_argument]);
+          char **new_argv = args.data();
+
+          // Finally run catch
+          return Catch::Session().run(new_argc, new_argv);
+        }
+
 
       deallog.depth_console(0);
 
@@ -599,7 +740,7 @@ int main (int argc, char *argv[])
       if (i_am_proc_0)
         {
           // Output header, except for a clean output for xml or plugin graph
-          if (!output_xml && !output_plugin_graph)
+          if (!output_xml && !output_plugin_graph && !validate_only)
             print_aspect_header(std::cout);
 
           if (output_help)
@@ -611,6 +752,10 @@ int main (int argc, char *argv[])
         }
       else
         {
+          // If only help or version is requested, we are done.
+          if (output_help || output_version)
+            return 0;
+
           // We hook into the abort handler on ranks != 0 to avoid an MPI
           // deadlock. The deal.II library will call std::abort() when an
           // Assert is triggered, which can lead to a deadlock because it
@@ -638,12 +783,16 @@ int main (int argc, char *argv[])
         {
           if (i_am_proc_0)
             print_help();
-          return 2;
+          return 0;
         }
 
       // See where to read input from, then do the reading and
       // put the contents of the input into a string.
-      const std::string input_as_string = read_parameter_file(prm_name);
+      const std::string raw_input_as_string = read_parameter_file(prm_name);
+
+      // Replace $ASPECT_SOURCE_DIR in the input so that include statements
+      // like "include $ASPECT_SOURCE_DIR/tests/bla.prm" work.
+      const std::string input_as_string = aspect::Utilities::expand_ASPECT_SOURCE_DIR(raw_input_as_string);
 
       // Determine the dimension we want to work in. the default
       // is 2, but if we find a line of the kind "set Dimension = ..."
@@ -663,12 +812,12 @@ int main (int argc, char *argv[])
         {
           case 2:
           {
-            run_simulator<2>(input_as_string,output_xml,output_plugin_graph);
+            run_simulator<2>(raw_input_as_string,input_as_string,output_xml,output_plugin_graph,validate_only);
             break;
           }
           case 3:
           {
-            run_simulator<3>(input_as_string,output_xml,output_plugin_graph);
+            run_simulator<3>(raw_input_as_string,input_as_string,output_xml,output_plugin_graph,validate_only);
             break;
           }
           default:

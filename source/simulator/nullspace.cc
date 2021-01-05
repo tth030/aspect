@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -23,7 +23,6 @@
 #include <aspect/global.h>
 
 #include <deal.II/lac/solver_gmres.h>
-#include <deal.II/lac/constraint_matrix.h>
 
 #ifdef ASPECT_USE_PETSC
 #include <deal.II/lac/solver_cg.h>
@@ -31,7 +30,6 @@
 #include <deal.II/lac/trilinos_solver.h>
 #endif
 
-#include <deal.II/lac/pointer_matrix.h>
 #include <deal.II/base/tensor_function.h>
 
 #include <deal.II/base/quadrature_lib.h>
@@ -67,7 +65,7 @@ namespace aspect
           axis(rotation_axis)
         {}
 
-        virtual Tensor<1,dim> value (const Point<dim> &p) const
+        Tensor<1,dim> value (const Point<dim> &p) const override
         {
           if ( dim == 2)
             return cross_product_2d(p);
@@ -102,7 +100,7 @@ namespace aspect
           translation(t)
         {}
 
-        virtual Tensor<1,dim> value(const Point<dim> &) const
+        Tensor<1,dim> value(const Point<dim> &) const override
         {
           return translation;
         }
@@ -112,7 +110,7 @@ namespace aspect
 
 
   template <int dim>
-  void Simulator<dim>::setup_nullspace_constraints(ConstraintMatrix &constraints)
+  void Simulator<dim>::setup_nullspace_constraints(AffineConstraints<double> &constraints)
   {
     if (!(parameters.nullspace_removal & (NullspaceRemoval::linear_momentum
                                           | NullspaceRemoval::net_translation)))
@@ -134,7 +132,7 @@ namespace aspect
 
       std::vector<types::global_dof_index> local_dof_indices (finite_element.dofs_per_cell);
       typename DoFHandler<dim>::active_cell_iterator cell;
-      for (cell = dof_handler.begin_active(); n_left_to_find>0 && cell != dof_handler.end(); ++cell)
+      for (const auto &cell : dof_handler.active_cell_iterators())
         if (cell->is_locally_owned())
           {
             cell->get_dof_indices (local_dof_indices);
@@ -162,9 +160,11 @@ namespace aspect
 
                 // are we done searching?
                 if (n_left_to_find == 0)
-                  break; // exit inner loop, outer loop will terminate automatically
+                  break; // exit inner loop
               }
 
+            if (n_left_to_find == 0)
+              break; // exit outer loop
           }
 
     }
@@ -262,7 +262,7 @@ namespace aspect
 
     typename DoFHandler<dim>::active_cell_iterator cell;
     // loop over all local cells
-    for (cell = dof_handler.begin_active(); cell != dof_handler.end(); ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
         {
           fe.reinit (cell);
@@ -375,7 +375,7 @@ namespace aspect
                                                           std::vector<double> (n_q_points));
 
     // loop over all local cells
-    for (cell = dof_handler.begin_active(); cell != dof_handler.end(); ++cell)
+    for (const auto &cell : dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
         {
           fe.reinit (cell);
@@ -422,12 +422,12 @@ namespace aspect
                     local_angular_momentum[i] += r_cross_v[i] * rho * fe.JxW(k);
 
                   // calculate moment of inertia
-                  local_moment_of_inertia[0][0] += (r_vec.square() - r_vec[0]*r_vec[0])*rho * fe.JxW(k);
-                  local_moment_of_inertia[1][1] += (r_vec.square() - r_vec[1]*r_vec[1])*rho * fe.JxW(k);
-                  local_moment_of_inertia[2][2] += (r_vec.square() - r_vec[2]*r_vec[2])*rho * fe.JxW(k);
-                  local_moment_of_inertia[0][1] -= ( r_vec[0]*r_vec[1])*rho * fe.JxW(k);
-                  local_moment_of_inertia[0][2] -= ( r_vec[0]*r_vec[2])*rho * fe.JxW(k);
-                  local_moment_of_inertia[1][2] -= ( r_vec[1]*r_vec[2])*rho * fe.JxW(k);
+                  local_moment_of_inertia[0][0] += (r_vec.square() - r_vec[0] * r_vec[0]) * rho * fe.JxW(k);
+                  local_moment_of_inertia[1][1] += (r_vec.square() - r_vec[1] * r_vec[1]) * rho * fe.JxW(k);
+                  local_moment_of_inertia[2][2] += (r_vec.square() - r_vec[2] * r_vec[2]) * rho * fe.JxW(k);
+                  local_moment_of_inertia[0][1] -= (r_vec[0] * r_vec[1]) * rho * fe.JxW(k);
+                  local_moment_of_inertia[0][2] -= (r_vec[0] * r_vec[2]) * rho * fe.JxW(k);
+                  local_moment_of_inertia[1][2] -= (r_vec[1] * r_vec[2]) * rho * fe.JxW(k);
                 }
             }
         }
@@ -435,32 +435,33 @@ namespace aspect
     // vector for storing the correction to the velocity field
     LinearAlgebra::Vector correction(tmp_distributed_stokes.block(introspection.block_indices.velocities));
 
-    if ( dim == 2)
+    if (dim == 2)
       {
-        const double scalar_moment = Utilities::MPI::sum( local_scalar_moment, mpi_communicator);
-        const double scalar_angular_momentum = Utilities::MPI::sum( local_scalar_angular_momentum, mpi_communicator);
+        const double scalar_moment = Utilities::MPI::sum(local_scalar_moment, mpi_communicator);
+        const double scalar_angular_momentum = Utilities::MPI::sum(local_scalar_angular_momentum, mpi_communicator);
 
-        const double rotation_rate = scalar_angular_momentum/scalar_moment;  // solve for the rotation rate to cancel the angular momentum
+        // Solve for the rotation rate to cancel the angular momentum
+        const double rotation_rate = scalar_angular_momentum / scalar_moment;
 
         // Now construct a rotation vector with the desired rate and subtract it from our vector
-        internal::Rotation<dim> rot(0);
+        const internal::Rotation<dim> rot(0);
         interpolate_onto_velocity_system(rot, correction);
         tmp_distributed_stokes.block(introspection.block_indices.velocities).add(-1.0*rotation_rate,correction);
       }
     else
       {
         // sum up the local contributions to moment of inertia
-        const SymmetricTensor<2,dim> moment_of_inertia = Utilities::MPI::sum( local_moment_of_inertia,
-                                                                              mpi_communicator );
+        const SymmetricTensor<2,dim> moment_of_inertia = Utilities::MPI::sum(local_moment_of_inertia,
+                                                                             mpi_communicator);
         // sum up the local contributions to angular momentum
-        const Tensor<1,dim> angular_momentum = Utilities::MPI::sum( local_angular_momentum, mpi_communicator );
+        const Tensor<1,dim> angular_momentum = Utilities::MPI::sum(local_angular_momentum, mpi_communicator );
 
         // Solve for the rotation vector that cancels the net momentum
-        SymmetricTensor<2,dim> inverse_moment ( invert( Tensor<2,dim>(moment_of_inertia) ) );
-        Tensor<1,dim> omega = - inverse_moment * angular_momentum;
+        const SymmetricTensor<2,dim> inverse_moment (invert( Tensor<2,dim>(moment_of_inertia)));
+        const Tensor<1,dim> omega = - inverse_moment * angular_momentum;
 
         // Remove that rotation from the solution vector
-        internal::Rotation<dim> rot( omega );
+        const internal::Rotation<dim> rot(omega);
         interpolate_onto_velocity_system(rot, correction);
         tmp_distributed_stokes.block(introspection.block_indices.velocities).add(1.0,correction);
       }
@@ -481,7 +482,9 @@ namespace aspect
 {
 #define INSTANTIATE(dim) \
   template void Simulator<dim>::remove_nullspace (LinearAlgebra::BlockVector &,LinearAlgebra::BlockVector &vector); \
-  template void Simulator<dim>::setup_nullspace_constraints (ConstraintMatrix &);
+  template void Simulator<dim>::setup_nullspace_constraints (AffineConstraints<double> &);
 
   ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
 }

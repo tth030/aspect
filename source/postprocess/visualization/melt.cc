@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2015 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2015 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -53,10 +53,10 @@ namespace aspect
         for (unsigned int i=0; i<property_names.size(); ++i)
           if (property_names[i] == "fluid density gradient")
             for (unsigned int i=0; i<dim; ++i)
-              solution_names.push_back ("fluid_density_gradient");
+              solution_names.emplace_back("fluid_density_gradient");
           else if (property_names[i] == "compaction pressure")
             {
-              solution_names.push_back ("p_c");
+              solution_names.emplace_back("p_c");
             }
           else
             {
@@ -92,7 +92,7 @@ namespace aspect
       MeltMaterialProperties<dim>::
       get_needed_update_flags () const
       {
-        return update_gradients | update_values  | update_q_points;
+        return update_gradients | update_values  | update_quadrature_points;
       }
 
       template <int dim>
@@ -116,10 +116,10 @@ namespace aspect
 
         this->get_material_model().evaluate(in, out);
         MaterialModel::MeltOutputs<dim> *melt_outputs = out.template get_additional_output<MaterialModel::MeltOutputs<dim> >();
-        AssertThrow(melt_outputs != NULL,
+        AssertThrow(melt_outputs != nullptr,
                     ExcMessage("Need MeltOutputs from the material model for computing the melt properties."));
 
-        const double p_c_scale = dynamic_cast<const MaterialModel::MeltInterface<dim>*>(&this->get_material_model())->p_c_scale(in,
+        const double p_c_scale = Plugins::get_plugin_as_type<const MaterialModel::MeltInterface<dim>>(this->get_material_model()).p_c_scale(in,
                                  out,
                                  this->get_melt_handler(),
                                  true);
@@ -166,6 +166,12 @@ namespace aspect
                   {
                     computed_quantities[q][output_index] = this->get_melt_handler().is_melt_cell(in.current_cell)? 1.0 : 0.0;
                   }
+                else if (property_names[i] == "compaction length")
+                  {
+                    const double compaction_length = std::sqrt((out.viscosities[q] + 4./3. * melt_outputs->compaction_viscosities[q])
+                                                               * melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q]);
+                    computed_quantities[q][output_index] = compaction_length;
+                  }
                 else
                   AssertThrow(false, ExcNotImplemented());
               }
@@ -185,7 +191,8 @@ namespace aspect
               const std::string pattern_of_names
                 = "compaction viscosity|fluid viscosity|permeability|"
                   "fluid density|fluid density gradient|is melt cell|"
-                  "darcy coefficient|darcy coefficient no cutoff";
+                  "darcy coefficient|darcy coefficient no cutoff|"
+                  "compaction length";
 
               prm.declare_entry("List of properties",
                                 "compaction viscosity,permeability",

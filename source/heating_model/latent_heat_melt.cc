@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2015 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2015 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -49,7 +49,7 @@ namespace aspect
 
           if (this->introspection().compositional_name_exists("porosity") &&  this->get_timestep_number() > 0)
             {
-              const double porosity_idx = this->introspection().compositional_index_for_name("porosity");
+              const unsigned int porosity_idx = this->introspection().compositional_index_for_name("porosity");
               double melting_rate = 0.0;
 
               if (!use_operator_split)
@@ -67,7 +67,7 @@ namespace aspect
                                                                   * melting_rate
                                                                   * material_model_inputs.temperature[q];
                 }
-              else if (use_operator_split && reaction_rate_out != NULL)
+              else if (use_operator_split && reaction_rate_out != nullptr)
                 {
                   // if operator splitting is used in the model, we have to use the reaction rates from the
                   // material model outputs instead of the reaction terms
@@ -89,7 +89,7 @@ namespace aspect
                                                                          * material_model_inputs.temperature[q]
                                                                          / material_model_outputs.specific_heat[q];
                 }
-              else if (use_operator_split && reaction_rate_out == NULL)
+              else if (use_operator_split && reaction_rate_out == nullptr)
                 {
                   // if operator plit is used, but the reaction rate outputs are not there,
                   // fill the rates of temperature change with NaNs, so that an error is thrown
@@ -108,11 +108,11 @@ namespace aspect
       {
         prm.enter_subsection("Latent heat melt");
         {
-          prm.declare_entry ("Melting entropy change", "-300",
+          prm.declare_entry ("Melting entropy change", "-300.",
                              Patterns::Double (),
                              "The entropy change for the phase transition "
                              "from solid to melt. "
-                             "Units: $J/(kg K)$.");
+                             "Units: \\si{\\joule\\per\\kelvin\\per\\kilogram}.");
         }
         prm.leave_subsection();
       }

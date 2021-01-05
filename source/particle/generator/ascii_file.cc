@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2015 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2015 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -30,7 +30,7 @@ namespace aspect
     {
       template <int dim>
       void
-      AsciiFile<dim>::generate_particles(std::multimap<types::LevelInd, Particle<dim> > &particles)
+      AsciiFile<dim>::generate_particles(std::multimap<Particles::internal::LevelInd, Particle<dim> > &particles)
       {
         const std::string filename = data_directory+data_filename;
 
@@ -41,7 +41,7 @@ namespace aspect
         while (in.peek() == '#')
           {
             std::string temp;
-            getline(in,temp);
+            std::getline(in,temp);
           }
 
         // Read data lines
@@ -140,7 +140,11 @@ namespace aspect
                                          "specified in an Ascii data file. The file format is "
                                          "a simple text file, with as many columns as spatial "
                                          "dimensions and as many lines as particles to be generated. "
-                                         "Initial comment lines starting with `#' will be discarded."
+                                         "Initial comment lines starting with `#' will be discarded. "
+                                         "Note that this plugin always generates as many particles "
+                                         "as there are coordinates in the data file, the "
+                                         "``Postprocess/Particles/Number of particles'' parameter "
+                                         "has no effect on this plugin. "
                                          "All of the values that define this generator are read "
                                          "from a section ``Postprocess/Particles/Generator/Ascii file'' in the "
                                          "input file, see "

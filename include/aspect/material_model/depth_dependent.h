@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2014 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2014 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -25,6 +25,7 @@
 #include <aspect/material_model/interface.h>
 #include <aspect/simulator_access.h>
 #include <deal.II/base/parsed_function.h>
+#include <aspect/material_model/rheology/ascii_depth_profile.h>
 
 namespace aspect
 {
@@ -46,13 +47,23 @@ namespace aspect
     {
       public:
         /**
+         * Initialize the base model at the beginning of the run.
+         */
+        void initialize() override;
+
+        /**
+         * Update the base model and viscosity function at the beginning of
+         * each timestep.
+         */
+        void update() override;
+
+        /**
          * Function to compute the material properties in @p out given the
          * inputs in @p in.
          */
-        virtual
         void
         evaluate (const typename Interface<dim>::MaterialModelInputs &in,
-                  typename Interface<dim>::MaterialModelOutputs &out) const;
+                  typename Interface<dim>::MaterialModelOutputs &out) const override;
         /**
          * Method to declare parameters related to depth-dependent model
          */
@@ -62,21 +73,21 @@ namespace aspect
         /**
          * Method to parse parameters related to depth-dependent model
          */
-        virtual void
-        parse_parameters (ParameterHandler &prm);
+        void
+        parse_parameters (ParameterHandler &prm) override;
 
         /**
          * Method that indicates whether material is compressible. Depth dependent model is compressible
          * if and only if base model is compressible.
          */
-        virtual bool is_compressible () const;
+        bool is_compressible () const override;
 
         /**
          * Method to calculate reference viscosity for the depth-dependent model. The reference
          * viscosity is determined by evaluating the depth-dependent part of the viscosity at
          * the mean depth of the model.
          */
-        virtual double reference_viscosity () const;
+        double reference_viscosity () const override;
 
       private:
 
@@ -97,18 +108,10 @@ namespace aspect
         ViscositySource viscosity_source;
 
         /**
-         * Function to read depth-dependent lookup table and set up interpolating function
-         * for File depth dependence method
-         */
-        void
-        read_viscosity_file(const std::string &filename,
-                            const MPI_Comm &comm);
-
-        /**
          * Data structures to store depth and viscosity lookup tables as well as interpolating
          * function to calculate viscosity for File Depth dependence method
          */
-        std_cxx11::shared_ptr< Functions::InterpolatedTensorProductGridData<1> > viscosity_file_function;
+        std::unique_ptr< Functions::InterpolatedTensorProductGridData<1> > viscosity_file_function;
 
         /**
          * Function to calculate viscosity at depth using values provided as List input
@@ -143,7 +146,12 @@ namespace aspect
         /**
          * Pointer to the material model used as the base model
          */
-        std_cxx11::shared_ptr<MaterialModel::Interface<dim> > base_model;
+        std::unique_ptr<MaterialModel::Interface<dim> > base_model;
+
+        /**
+         * Pointer to the rheology model used for depth-dependence from an ascii file
+        */
+        std::unique_ptr<Rheology::AsciiDepthProfile<dim> > depth_dependent_rheology;
     };
   }
 }

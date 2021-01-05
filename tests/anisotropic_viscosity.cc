@@ -180,7 +180,7 @@ namespace aspect
           const double eta = scratch.material_model_outputs.viscosities[q];
           const double one_over_eta = 1. / eta;
 
-          const bool use_tensor = (anisotropic_viscosity != NULL);
+          const bool use_tensor = (anisotropic_viscosity != nullptr);
 
           const SymmetricTensor<4, dim> &stress_strain_director = (use_tensor)
                                                                   ?
@@ -220,11 +220,10 @@ namespace aspect
     {
       const unsigned int n_points = outputs.viscosities.size();
 
-      if (outputs.template get_additional_output<MaterialModel::AnisotropicViscosity<dim> >() == NULL)
+      if (outputs.template get_additional_output<MaterialModel::AnisotropicViscosity<dim> >() == nullptr)
         {
           outputs.additional_outputs.push_back(
-            std_cxx11::shared_ptr<MaterialModel::AnisotropicViscosity<dim> >
-            (new MaterialModel::AnisotropicViscosity<dim> (n_points)));
+            std_cxx14::make_unique<MaterialModel::AnisotropicViscosity<dim>> (n_points));
         }
     }
 
@@ -277,7 +276,7 @@ namespace aspect
 
           const double eta_two_thirds = scratch.material_model_outputs.viscosities[q] * 2.0 / 3.0;
 
-          const bool use_tensor = (anisotropic_viscosity != NULL);
+          const bool use_tensor = (anisotropic_viscosity != nullptr);
 
           const SymmetricTensor<4, dim> &stress_strain_director = (use_tensor)
                                                                   ?
@@ -349,7 +348,7 @@ namespace aspect
                               :
                               numbers::signaling_nan<double>());
 
-          const bool use_tensor = (anisotropic_viscosity != NULL);
+          const bool use_tensor = (anisotropic_viscosity != nullptr);
 
           const SymmetricTensor<4, dim> &stress_strain_director = (use_tensor)
                                                                   ?
@@ -368,7 +367,7 @@ namespace aspect
               data.local_rhs(i) += (density * gravity * scratch.phi_u[i])
                                    * JxW;
 
-              if (force != NULL)
+              if (force != nullptr)
                 data.local_rhs(i) += (force->rhs_u[q] * scratch.phi_u[i]
                                       + pressure_scaling * force->rhs_p[q] * scratch.phi_p[i])
                                      * JxW;
@@ -403,19 +402,17 @@ namespace aspect
     {
       const unsigned int n_points = outputs.viscosities.size();
 
-      if (outputs.template get_additional_output<MaterialModel::AnisotropicViscosity<dim> >() == NULL)
+      if (outputs.template get_additional_output<MaterialModel::AnisotropicViscosity<dim> >() == nullptr)
         {
           outputs.additional_outputs.push_back(
-            std_cxx11::shared_ptr<MaterialModel::AnisotropicViscosity<dim> >
-            (new MaterialModel::AnisotropicViscosity<dim> (n_points)));
+            std_cxx14::make_unique<MaterialModel::AnisotropicViscosity<dim>> (n_points));
         }
 
       if (this->get_parameters().enable_additional_stokes_rhs
-          && outputs.template get_additional_output<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim> >() == NULL)
+          && outputs.template get_additional_output<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim> >() == nullptr)
         {
           outputs.additional_outputs.push_back(
-            std_cxx11::shared_ptr<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim> >
-            (new MaterialModel::AdditionalMaterialOutputsStokesRHS<dim> (n_points)));
+            std_cxx14::make_unique<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>> (n_points));
         }
       Assert(!this->get_parameters().enable_additional_stokes_rhs
              ||
@@ -462,7 +459,7 @@ namespace aspect
           // Viscosity scalar
           const double eta_two_thirds = scratch.material_model_outputs.viscosities[q] * 2.0 / 3.0;
 
-          const bool use_tensor = (anisotropic_viscosity != NULL);
+          const bool use_tensor = (anisotropic_viscosity != nullptr);
 
           const SymmetricTensor<4, dim> &stress_strain_director = (use_tensor)
                                                                   ?
@@ -534,7 +531,7 @@ namespace aspect
       for (unsigned int q=0; q<heating_model_outputs.heating_source_terms.size(); ++q)
         {
           // If there is an anisotropic viscosity, use it to compute the correct stress
-          const SymmetricTensor<2,dim> &directed_strain_rate = ((anisotropic_viscosity != NULL)
+          const SymmetricTensor<2,dim> &directed_strain_rate = ((anisotropic_viscosity != nullptr)
                                                                 ?
                                                                 anisotropic_viscosity->stress_strain_directors[q]
                                                                 * material_model_inputs.strain_rate[q]
@@ -549,7 +546,7 @@ namespace aspect
              :
              directed_strain_rate);
 
-          const SymmetricTensor<2,dim> compressible_strain_rate =
+          const SymmetricTensor<2,dim> deviatoric_strain_rate =
             (this->get_material_model().is_compressible()
              ?
              material_model_inputs.strain_rate[q]
@@ -557,7 +554,7 @@ namespace aspect
              :
              material_model_inputs.strain_rate[q]);
 
-          heating_model_outputs.heating_source_terms[q] = stress * compressible_strain_rate;
+          heating_model_outputs.heating_source_terms[q] = stress * deviatoric_strain_rate;
 
           // If dislocation viscosities and boundary area work fractions are provided, reduce the
           // overall heating by this amount (which is assumed to increase surface energy)
@@ -578,11 +575,10 @@ namespace aspect
     {
       const unsigned int n_points = material_model_outputs.viscosities.size();
 
-      if (material_model_outputs.template get_additional_output<MaterialModel::AnisotropicViscosity<dim> >() == NULL)
+      if (material_model_outputs.template get_additional_output<MaterialModel::AnisotropicViscosity<dim> >() == nullptr)
         {
           material_model_outputs.additional_outputs.push_back(
-            std_cxx11::shared_ptr<MaterialModel::AnisotropicViscosity<dim> >
-            (new MaterialModel::AnisotropicViscosity<dim> (n_points)));
+            std_cxx14::make_unique<MaterialModel::AnisotropicViscosity<dim>> (n_points));
         }
 
       this->get_material_model().create_additional_named_outputs(material_model_outputs);
@@ -633,17 +629,17 @@ namespace aspect
     {
       for (unsigned int i=0; i<assemblers.stokes_preconditioner.size(); ++i)
         {
-          if (dynamic_cast<Assemblers::StokesPreconditioner<dim> *>(assemblers.stokes_preconditioner[i].get()) != NULL)
+          if (dynamic_cast<Assemblers::StokesPreconditioner<dim> *>(assemblers.stokes_preconditioner[i].get()) != nullptr)
             assemblers.stokes_preconditioner[i] = std_cxx14::make_unique<Assemblers::StokesPreconditionerAnisotropicViscosity<dim> > ();
-          if (dynamic_cast<Assemblers::StokesCompressiblePreconditioner<dim> *>(assemblers.stokes_preconditioner[i].get()) != NULL)
+          if (dynamic_cast<Assemblers::StokesCompressiblePreconditioner<dim> *>(assemblers.stokes_preconditioner[i].get()) != nullptr)
             assemblers.stokes_preconditioner[i] = std_cxx14::make_unique<Assemblers::StokesCompressiblePreconditionerAnisotropicViscosity<dim> > ();
         }
 
       for (unsigned int i=0; i<assemblers.stokes_system.size(); ++i)
         {
-          if (dynamic_cast<Assemblers::StokesIncompressibleTerms<dim> *>(assemblers.stokes_system[i].get()) != NULL)
+          if (dynamic_cast<Assemblers::StokesIncompressibleTerms<dim> *>(assemblers.stokes_system[i].get()) != nullptr)
             assemblers.stokes_system[i] = std_cxx14::make_unique<Assemblers::StokesIncompressibleTermsAnisotropicViscosity<dim> > ();
-          if (dynamic_cast<Assemblers::StokesCompressibleStrainRateViscosityTerm<dim> *>(assemblers.stokes_system[i].get()) != NULL)
+          if (dynamic_cast<Assemblers::StokesCompressibleStrainRateViscosityTerm<dim> *>(assemblers.stokes_system[i].get()) != nullptr)
             assemblers.stokes_system[i] = std_cxx14::make_unique<Assemblers::StokesCompressibleStrainRateViscosityTermAnisotropicViscosity<dim> > ();
         }
     }
@@ -653,10 +649,10 @@ namespace aspect
     Anisotropic<dim>::
     initialize()
     {
-      this->get_signals().set_assemblers.connect (std_cxx11::bind(&Anisotropic<dim>::set_assemblers,
-                                                                  std_cxx11::cref(*this),
-                                                                  std_cxx11::_1,
-                                                                  std_cxx11::_2));
+      this->get_signals().set_assemblers.connect (std::bind(&Anisotropic<dim>::set_assemblers,
+                                                            std::cref(*this),
+                                                            std::placeholders::_1,
+                                                            std::placeholders::_2));
     }
 
     template <int dim>
@@ -674,14 +670,14 @@ namespace aspect
       center[1] = 0.5;
       if (dim == 3)
         center[2] = 0.5;
-      for (unsigned int i=0; i < in.position.size(); ++i)
+      for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
         {
           const double pressure = in.pressure[i];
           out.densities[i] = 1.0 + pressure;
           out.compressibilities[i] = 1.0 / (1. + pressure);
           if ((in.position[i]-center).norm() < 0.25)
             {
-              if (anisotropic_viscosity != NULL)
+              if (anisotropic_viscosity != nullptr)
                 anisotropic_viscosity->stress_strain_directors[i] = C;
             }
         }
@@ -785,7 +781,7 @@ namespace aspect
   template class StokesCompressibleStrainRateViscosityTerm<dim>; \
   template class StokesReferenceDensityCompressibilityTerm<dim>; \
   template class StokesImplicitReferenceDensityCompressibilityTerm<dim>; \
-  template class StokesIsothermalCompressionTerm<dim>; \
+  template class StokesIsentropicCompressionTerm<dim>; \
   template class StokesHydrostaticCompressionTerm<dim>; \
   template class StokesPressureRHSCompatibilityModification<dim>; \
   template class StokesBoundaryTraction<dim>;

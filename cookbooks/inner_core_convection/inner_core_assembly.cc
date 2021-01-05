@@ -1,3 +1,23 @@
+/*
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
+
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
+
 #include <aspect/simulator_access.h>
 #include <aspect/global.h>
 #include <aspect/simulator.h>
@@ -16,7 +36,7 @@ namespace aspect
    * normal stress and the normal velocity that take into account the
    * rate of phase change (melting/freezing) at the inner-outer core
    * boundary. The model is based on Deguen, Alboussiere, and Cardin
-   * (2013), Thermal convection in Earth’s inner core with phase change
+   * (2013), Thermal convection in Earth's inner core with phase change
    * at its boundary. GJI, 194, 1310-133.
    *
    * The mechanical boundary conditions for the inner core are
@@ -66,7 +86,7 @@ namespace aspect
 
             for (unsigned int q=0; q<n_q_points; ++q)
               {
-                const double P = dynamic_cast<const MaterialModel::InnerCore<dim>&>
+                const double P = Plugins::get_plugin_as_type<const MaterialModel::InnerCore<dim>>
                                  (this->get_material_model()).resistance_to_phase_change
                                  .value(scratch.material_model_inputs.position[q]);
 
@@ -102,13 +122,12 @@ namespace aspect
   void set_assemblers_phase_boundary(const SimulatorAccess<dim> &simulator_access,
                                      Assemblers::Manager<dim> &assemblers)
   {
-    AssertThrow (dynamic_cast<const MaterialModel::InnerCore<dim>*>
-                 (&simulator_access.get_material_model()) != 0,
+    AssertThrow (Plugins::plugin_type_matches<const MaterialModel::InnerCore<dim>>
+                 (simulator_access.get_material_model()),
                  ExcMessage ("The phase boundary assembler can only be used with the "
                              "material model 'inner core material'!"));
 
-    PhaseBoundaryAssembler<dim> *phase_boundary_assembler = new PhaseBoundaryAssembler<dim>();
-    assemblers.stokes_system_on_boundary_face.push_back (std_cxx11::unique_ptr<PhaseBoundaryAssembler<dim> > (phase_boundary_assembler));
+    assemblers.stokes_system_on_boundary_face.push_back (std_cxx14::make_unique<PhaseBoundaryAssembler<dim>>());
   }
 }
 

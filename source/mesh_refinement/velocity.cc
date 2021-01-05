@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -37,11 +37,11 @@ namespace aspect
       KellyErrorEstimator<dim>::estimate (this->get_mapping(),
                                           this->get_dof_handler(),
                                           QGauss<dim-1>(this->introspection().polynomial_degree.velocities+1),
-                                          typename FunctionMap<dim>::type(),
+                                          std::map<types::boundary_id,const Function<dim>*>(),
                                           this->get_solution(),
                                           indicators,
                                           this->introspection().component_masks.velocities,
-                                          0,
+                                          nullptr,
                                           0,
                                           this->get_triangulation().locally_owned_subdomain());
     }

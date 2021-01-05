@@ -161,7 +161,7 @@ namespace aspect
         virtual void evaluate(const MaterialModel::MaterialModelInputs<dim> &in,
                               MaterialModel::MaterialModelOutputs<dim> &out) const
         {
-          for (unsigned int i=0; i < in.position.size(); ++i)
+          for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
             {
               const Point<dim> &pos = in.position[i];
               const double r2 = ( pos[0] - 1.0 ) * ( pos[0] - 1.0 ) + ( pos[1] - 1.0 ) * ( pos[1] - 1.0 );
@@ -339,14 +339,14 @@ namespace aspect
     std::pair<std::string,std::string>
     InclusionPostprocessor<dim>::execute (TableHandler &statistics)
     {
-      std_cxx1x::shared_ptr<Function<dim> > ref_func;
-      if (dynamic_cast<const InclusionMaterial<dim> *>(&this->get_material_model()) != NULL)
+      std::unique_ptr<Function<dim> > ref_func;
+      if (dynamic_cast<const InclusionMaterial<dim> *>(&this->get_material_model()) != nullptr)
         {
           const InclusionMaterial<dim> *
           material_model
             = dynamic_cast<const InclusionMaterial<dim> *>(&this->get_material_model());
 
-          ref_func.reset (new AnalyticSolutions::FunctionInclusion<dim>(material_model->get_eta_B()));
+          ref_func = std_cxx14::make_unique<AnalyticSolutions::FunctionInclusion<dim>>(material_model->get_eta_B());
         }
       else
         {
@@ -394,10 +394,10 @@ namespace aspect
                                          VectorTools::L2_norm,
                                          &comp_p);
 
-      const double u_l1 = Utilities::MPI::sum(cellwise_errors_u.l1_norm(),this->get_mpi_communicator());
-      const double p_l1 = Utilities::MPI::sum(cellwise_errors_p.l1_norm(),this->get_mpi_communicator());
-      const double u_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_ul2.norm_sqr(),this->get_mpi_communicator()));
-      const double p_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_pl2.norm_sqr(),this->get_mpi_communicator()));
+      const double u_l1 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_u, VectorTools::L1_norm);
+      const double p_l1 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_p, VectorTools::L1_norm);
+      const double u_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_ul2, VectorTools::L2_norm);
+      const double p_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_pl2, VectorTools::L2_norm);
 
       std::ostringstream os;
       os << std::scientific << u_l1

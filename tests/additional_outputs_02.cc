@@ -75,11 +75,11 @@ namespace aspect
       {
         std::cout << "* create_additional_material_model_outputs() called" << std::endl;
 
-        if (out.template get_additional_output<MaterialModel::AdditionalOutputs1<dim> >() != NULL)
+        if (out.template get_additional_output<MaterialModel::AdditionalOutputs1<dim> >() != nullptr)
           return;
 
         std::cout << "   creating additional output!" << std::endl;
-        out.additional_outputs.push_back(std::make_shared<MaterialModel::AdditionalOutputs1<dim> > (1));
+        out.additional_outputs.push_back(std_cxx14::make_unique<MaterialModel::AdditionalOutputs1<dim> > (1));
 
       }
 
@@ -91,8 +91,8 @@ namespace aspect
         MaterialModel::AdditionalOutputs1<dim> *additional
           = scratch.material_model_outputs.template get_additional_output<MaterialModel::AdditionalOutputs1<dim> >();
 
-        std::cout << "* local_assemble_stokes call, have additional? " << (additional!=NULL) << std::endl;
-        if (additional!=NULL)
+        std::cout << "* local_assemble_stokes call, have additional? " << (additional!=nullptr) << std::endl;
+        if (additional!=nullptr)
           std::cout << "   value = " << additional->additional_material_output1[0] << std::endl;
 
 
@@ -114,7 +114,7 @@ namespace aspect
     quiet = false;
 
     TestAssembler<dim> *test_assembler = new TestAssembler<dim>();
-    assemblers.stokes_system.push_back(std_cxx11::unique_ptr<Assemblers::Interface<dim> >(test_assembler));
+    assemblers.stokes_system.push_back(std::unique_ptr<Assemblers::Interface<dim> >(test_assembler));
   }
 }
 

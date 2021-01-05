@@ -45,7 +45,7 @@ namespace aspect
       virtual void evaluate(const typename MaterialModel::Interface<dim>::MaterialModelInputs &in,
                             typename MaterialModel::Interface<dim>::MaterialModelOutputs &out) const
       {
-        for (unsigned int i=0; i<in.position.size(); ++i)
+        for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
           {
             out.viscosities[i] = 0.75;
             out.thermal_expansion_coefficients[i] = 0.0;
@@ -60,9 +60,9 @@ namespace aspect
         // fill melt outputs if they exist
         aspect::MaterialModel::MeltOutputs<dim> *melt_out = out.template get_additional_output<aspect::MaterialModel::MeltOutputs<dim> >();
 
-        if (melt_out != NULL)
+        if (melt_out != nullptr)
           {
-            for (unsigned int i=0; i<in.position.size(); ++i)
+            for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
               {
                 melt_out->compaction_viscosities[i] = 0.5 * (in.position[i][1]+0.1)*(in.position[i][1]+0.1);
                 melt_out->fluid_viscosities[i] = 1.0;
@@ -137,7 +137,7 @@ namespace aspect
                                        VectorTools::L2_norm,
                                        &comp_porosity);
 
-    const double poro_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_porosity.norm_sqr(),this->get_mpi_communicator()));
+    const double poro_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_porosity, VectorTools::L2_norm);
 
     std::ostringstream os;
     os << std::scientific << poro_l2;

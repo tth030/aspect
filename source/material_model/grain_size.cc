@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2014 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2014 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -41,8 +41,8 @@ namespace aspect
       std::vector<std::string> make_dislocation_viscosity_outputs_names()
       {
         std::vector<std::string> names;
-        names.push_back("dislocation_viscosity");
-        names.push_back("boundary_area_change_work_fraction");
+        names.emplace_back("dislocation_viscosity");
+        names.emplace_back("boundary_area_change_work_fraction");
         return names;
       }
     }
@@ -81,537 +81,6 @@ namespace aspect
 
 
 
-    namespace Lookup
-    {
-      double
-      MaterialLookup::specific_heat(double temperature,
-                                    double pressure) const
-      {
-        return value(temperature,pressure,specific_heat_values,interpolation);
-      }
-
-      double
-      MaterialLookup::density(double temperature,
-                              double pressure) const
-      {
-        return value(temperature,pressure,density_values,interpolation);
-      }
-
-      double
-      MaterialLookup::thermal_expansivity(const double temperature,
-                                          const double pressure) const
-      {
-        return value(temperature,pressure,thermal_expansivity_values,interpolation);
-      }
-
-      double
-      MaterialLookup::seismic_Vp(const double temperature,
-                                 const double pressure) const
-      {
-        return value(temperature,pressure,vp_values,false);
-      }
-
-      double
-      MaterialLookup::seismic_Vs(const double temperature,
-                                 const double pressure) const
-      {
-        return value(temperature,pressure,vs_values,false);
-      }
-
-      double
-      MaterialLookup::enthalpy(const double temperature,
-                               const double pressure) const
-      {
-        return value(temperature,pressure,enthalpy_values,true);
-      }
-
-      double
-      MaterialLookup::dHdT (const double temperature,
-                            const double pressure) const
-      {
-        const double h = value(temperature,pressure,enthalpy_values,interpolation);
-        const double dh = value(temperature+delta_temp,pressure,enthalpy_values,interpolation);
-        return (dh - h) / delta_temp;
-      }
-
-      double
-      MaterialLookup::dHdp (const double temperature,
-                            const double pressure) const
-      {
-        const double h = value(temperature,pressure,enthalpy_values,interpolation);
-        const double dh = value(temperature,pressure+delta_press,enthalpy_values,interpolation);
-        return (dh - h) / delta_press;
-      }
-
-      std_cxx11::array<std::pair<double, unsigned int>,2>
-      MaterialLookup::enthalpy_derivatives(const std::vector<double> temperatures,
-                                           const std::vector<double> pressures,
-                                           const unsigned int n_substeps) const
-      {
-        Assert(temperatures.size() == pressures.size(),ExcInternalError());
-        const unsigned int n_q_points = temperatures.size();
-        unsigned int n_T(0), n_p(0);
-        double dHdT(0.0), dHdp(0.0);
-
-        for (unsigned int q=0; q<n_q_points; ++q)
-          {
-            for (unsigned int p=0; p<n_q_points; ++p)
-              {
-                if (std::fabs(temperatures[q] - temperatures[p]) > 100.0 * std::numeric_limits<double>::epsilon() * std::fabs(temperatures[q] + std::numeric_limits<double>::epsilon()))
-                  {
-                    for (unsigned int substep = 0; substep < n_substeps; ++substep)
-                      {
-                        const double current_pressure = pressures[q]
-                                                        + ((double)(substep)/(double)(n_substeps))
-                                                        * (pressures[p]-pressures[q]);
-                        const double T1_substep = temperatures[q]
-                                                  + ((double)(substep)/(double)(n_substeps))
-                                                  * (temperatures[p]-temperatures[q]);
-                        const double T2_substep = temperatures[q]
-                                                  + ((double)(substep+1)/(double)(n_substeps))
-                                                  * (temperatures[p]-temperatures[q]);
-                        const double enthalpy2 = enthalpy(T2_substep,current_pressure);
-                        const double enthalpy1 = enthalpy(T1_substep,current_pressure);
-                        dHdT += (enthalpy2-enthalpy1)/(T2_substep-T1_substep);
-                        ++n_T;
-                      }
-                  }
-                if (std::fabs(pressures[q] - pressures[p]) > 100.0 * std::numeric_limits<double>::epsilon() * std::fabs(pressures[q] + std::numeric_limits<double>::epsilon()))
-                  {
-                    for (unsigned int substep = 0; substep < n_substeps; ++substep)
-                      {
-                        const double current_temperature = temperatures[q]
-                                                           + ((double)(substep)/(double)(n_substeps))
-                                                           * (temperatures[p]-temperatures[q]);
-                        const double p1_substep = pressures[q]
-                                                  + ((double)(substep)/(double)(n_substeps))
-                                                  * (pressures[p]-pressures[q]);
-                        const double p2_substep = pressures[q]
-                                                  + ((double)(substep+1)/(double)(n_substeps))
-                                                  * (pressures[p]-pressures[q]);
-                        const double enthalpy2 = enthalpy(current_temperature,p2_substep);
-                        const double enthalpy1 = enthalpy(current_temperature,p1_substep);
-                        dHdp += (enthalpy2-enthalpy1)/(p2_substep-p1_substep);
-                        ++n_p;
-                      }
-                  }
-              }
-          }
-
-        if ((n_T > 0)
-            && (n_p > 0))
-          {
-            dHdT /= n_T;
-            dHdp /= n_p;
-          }
-
-        std_cxx11::array<std::pair<double, unsigned int>,2> derivatives;
-        derivatives[0] = std::make_pair(dHdT,n_T);
-        derivatives[1] = std::make_pair(dHdp,n_p);
-        return derivatives;
-      }
-
-      double
-      MaterialLookup::dRhodp (const double temperature,
-                              const double pressure) const
-      {
-        const double rho = value(temperature,pressure,density_values,interpolation);
-        const double drho = value(temperature,pressure+delta_press,density_values,interpolation);
-        return (drho - rho) / delta_press;
-      }
-
-      double
-      MaterialLookup::value (const double temperature,
-                             const double pressure,
-                             const Table<2, double> &values,
-                             const bool interpol) const
-      {
-        const double nT = get_nT(temperature);
-        const unsigned int inT = static_cast<unsigned int>(nT);
-
-        const double np = get_np(pressure);
-        const unsigned int inp = static_cast<unsigned int>(np);
-
-        Assert(inT<values.n_rows(), ExcMessage("Attempting to look up a temperature value with index greater than the number of rows."));
-        Assert(inp<values.n_cols(), ExcMessage("Attempting to look up a pressure value with index greater than the number of columns."));
-
-        if (!interpol)
-          return values[inT][inp];
-        else
-          {
-            // compute the coordinates of this point in the
-            // reference cell between the data points
-            const double xi = nT-inT;
-            const double eta = np-inp;
-
-            Assert ((0 <= xi) && (xi <= 1), ExcInternalError());
-            Assert ((0 <= eta) && (eta <= 1), ExcInternalError());
-
-            // use these coordinates for a bilinear interpolation
-            return ((1-xi)*(1-eta)*values[inT][inp] +
-                    xi    *(1-eta)*values[inT+1][inp] +
-                    (1-xi)*eta    *values[inT][inp+1] +
-                    xi    *eta    *values[inT+1][inp+1]);
-          }
-      }
-
-      std_cxx1x::array<double,2>
-      MaterialLookup::get_pT_steps() const
-      {
-        std_cxx1x::array<double,2> pt_steps;
-        pt_steps[0] = delta_press;
-        pt_steps[1] = delta_temp;
-        return pt_steps;
-      }
-
-      double
-      MaterialLookup::get_nT(const double temperature) const
-      {
-        double bounded_temperature=std::max(min_temp, temperature);
-        bounded_temperature=std::min(bounded_temperature, max_temp-delta_temp);
-
-        return (bounded_temperature-min_temp)/delta_temp;
-      }
-
-      double
-      MaterialLookup::get_np(const double pressure) const
-      {
-        double bounded_pressure=std::max(min_press, pressure);
-        bounded_pressure=std::min(bounded_pressure, max_press-delta_press);
-
-        return (bounded_pressure-min_press)/delta_press;
-      }
-
-      HeFESToReader::HeFESToReader(const std::string &material_filename,
-                                   const std::string &derivatives_filename,
-                                   const bool interpol,
-                                   const MPI_Comm &comm)
-      {
-        /* Initializing variables */
-        interpolation = interpol;
-        delta_press=numbers::signaling_nan<double>();
-        min_press=std::numeric_limits<double>::max();
-        max_press=-std::numeric_limits<double>::max();
-        delta_temp=numbers::signaling_nan<double>();
-        min_temp=std::numeric_limits<double>::max();
-        max_temp=-std::numeric_limits<double>::max();
-        n_temperature=0;
-        n_pressure=0;
-
-        std::string temp;
-
-        // Read material data
-        {
-          // Read data from disk and distribute among processes
-          std::istringstream in(Utilities::read_and_distribute_file_content(material_filename, comm));
-
-          bool parsed_first_column = false;
-          unsigned int i = 0;
-          double current_pressure = 0.0;
-          double old_pressure = -1.0;
-          while (!in.eof())
-            {
-              in >> current_pressure;
-              if (in.fail())
-                {
-                  in.clear();
-                }
-
-              if (!parsed_first_column)
-                {
-                  if (current_pressure > old_pressure)
-                    old_pressure = current_pressure;
-                  else if (current_pressure <= old_pressure)
-                    {
-                      n_pressure = i;
-                      parsed_first_column = true;
-                    }
-                }
-
-              getline(in, temp);
-              if (in.eof())
-                break;
-              i++;
-            }
-
-          in.clear();
-          in.seekg (0, in.beg);
-
-          n_temperature = i / n_pressure;
-
-          Assert(i == n_temperature * n_pressure,
-                 ExcMessage("Material table size not consistent."));
-
-          density_values.reinit(n_temperature,n_pressure);
-          thermal_expansivity_values.reinit(n_temperature,n_pressure);
-          specific_heat_values.reinit(n_temperature,n_pressure);
-          vp_values.reinit(n_temperature,n_pressure);
-          vs_values.reinit(n_temperature,n_pressure);
-          enthalpy_values.reinit(n_temperature,n_pressure);
-
-          i = 0;
-          while (!in.eof())
-            {
-              double P = 0.0;
-              double depth,T;
-              double rho,vb,vs,vp,vsq,vpq,h;
-              std::string code;
-              double alpha = 0.0;
-              double cp = 0.0;
-
-              in >> P >> depth >> T;
-              if (in.fail())
-                in.clear();
-              // conversion from [GPa] to [Pa]
-              P *= 1e9;
-
-              min_press=std::min(P,min_press);
-              min_temp=std::min(T,min_temp);
-              max_temp = std::max(T,max_temp);
-              max_press = std::max(P,max_press);
-
-              in >> rho;
-              if (in.fail())
-                {
-                  in.clear();
-                  rho = density_values[(i-1)%n_temperature][(i-1)/n_temperature];
-                }
-              else
-                rho *= 1e3; // conversion from [g/cm^3] to [kg/m^3]
-
-              in >> vb;
-              if (in.fail())
-                in.clear();
-
-              in >> vs;
-              if (in.fail())
-                {
-                  in.clear();
-                  vs = vs_values[(i-1)%n_temperature][(i-1)/n_temperature];
-                }
-              in >> vp;
-              if (in.fail())
-                {
-                  in.clear();
-                  vp = vp_values[(i-1)%n_temperature][(i-1)/n_temperature];
-                }
-              in >> vsq >> vpq;
-
-              in >> h;
-              if (in.fail())
-                {
-                  in.clear();
-                  h = enthalpy_values[(i-1)%n_temperature][(i-1)/n_temperature];
-                }
-              else
-                h *= 1e6; // conversion from [kJ/g] to [J/kg]
-
-              getline(in, temp);
-              if (in.eof())
-                break;
-
-              density_values[i/n_pressure][i%n_pressure]=rho;
-              thermal_expansivity_values[i/n_pressure][i%n_pressure]=alpha;
-              specific_heat_values[i/n_pressure][i%n_pressure]=cp;
-              vp_values[i/n_pressure][i%n_pressure]=vp;
-              vs_values[i/n_pressure][i%n_pressure]=vs;
-              enthalpy_values[i/n_pressure][i%n_pressure]=h;
-
-              i++;
-            }
-
-          delta_temp = (max_temp - min_temp) / (n_temperature - 1);
-          delta_press = (max_press - min_press) / (n_pressure - 1);
-
-          AssertThrow(max_temp >= 0.0, ExcMessage("Read in of Material header failed (max_temp)."));
-          AssertThrow(delta_temp > 0, ExcMessage("Read in of Material header failed (delta_temp)."));
-          AssertThrow(n_temperature > 0, ExcMessage("Read in of Material header failed (numtemp)."));
-          AssertThrow(max_press >= 0, ExcMessage("Read in of Material header failed (max_press)."));
-          AssertThrow(delta_press > 0, ExcMessage("Read in of Material header failed (delta_press)."));
-          AssertThrow(n_pressure > 0, ExcMessage("Read in of Material header failed (numpress)."));
-        }
-
-        // If requested read derivative data
-        if (derivatives_filename != "")
-          {
-            std::string temp;
-            // Read data from disk and distribute among processes
-            std::istringstream in(Utilities::read_and_distribute_file_content(derivatives_filename, comm));
-
-            int i = 0;
-            while (!in.eof())
-              {
-                double P = 0.0;
-                double depth,T;
-                double cp,alpha,alpha_eff;
-                double temp1,temp2;
-
-                in >> P >> depth >> T;
-                if (in.fail())
-                  in.clear();
-
-
-                in >> cp;
-                if (in.fail() || (cp <= std::numeric_limits<double>::min()))
-                  {
-                    in.clear();
-                    cp = specific_heat_values[(i-1)%n_temperature][(i-1)/n_temperature];
-                  }
-                else
-                  cp *= 1e3; // conversion from [J/g/K] to [J/kg/K]
-
-                in >> alpha >> alpha_eff;
-                if (in.fail() || (alpha_eff <= std::numeric_limits<double>::min()))
-                  {
-                    in.clear();
-                    alpha_eff = thermal_expansivity_values[(i-1)%n_temperature][(i-1)/n_temperature];
-                  }
-                else
-                  {
-                    alpha *= 1e-5;
-                    alpha_eff *= 1e-5;
-                  }
-
-                in >> temp1 >> temp2;
-                if (in.fail())
-                  in.clear();
-
-
-                getline(in, temp);
-                if (in.eof())
-                  break;
-
-                specific_heat_values[i/n_pressure][i%n_pressure]=cp;
-                thermal_expansivity_values[i/n_pressure][i%n_pressure]=alpha_eff;
-
-                i++;
-              }
-          }
-      }
-
-      PerplexReader::PerplexReader(const std::string &filename,
-                                   const bool interpol,
-                                   const MPI_Comm &comm)
-      {
-        /* Initializing variables */
-        interpolation = interpol;
-        delta_press=numbers::signaling_nan<double>();
-        min_press=std::numeric_limits<double>::max();
-        max_press=-std::numeric_limits<double>::max();
-        delta_temp=numbers::signaling_nan<double>();
-        min_temp=std::numeric_limits<double>::max();
-        max_temp=-std::numeric_limits<double>::max();
-        n_temperature=0;
-        n_pressure=0;
-
-        std::string temp;
-        // Read data from disk and distribute among processes
-        std::istringstream in(Utilities::read_and_distribute_file_content(filename, comm));
-
-        getline(in, temp); // eat first line
-        getline(in, temp); // eat next line
-        getline(in, temp); // eat next line
-        getline(in, temp); // eat next line
-
-        in >> min_temp;
-        getline(in, temp);
-        in >> delta_temp;
-        getline(in, temp);
-        in >> n_temperature;
-        getline(in, temp);
-        getline(in, temp);
-        in >> min_press;
-        min_press *= 1e5;  // conversion from [bar] to [Pa]
-        getline(in, temp);
-        in >> delta_press;
-        delta_press *= 1e5; // conversion from [bar] to [Pa]
-        getline(in, temp);
-        in >> n_pressure;
-        getline(in, temp);
-        getline(in, temp);
-        getline(in, temp);
-
-        AssertThrow(min_temp >= 0.0, ExcMessage("Read in of Material header failed (mintemp)."));
-        AssertThrow(delta_temp > 0, ExcMessage("Read in of Material header failed (delta_temp)."));
-        AssertThrow(n_temperature > 0, ExcMessage("Read in of Material header failed (numtemp)."));
-        AssertThrow(min_press >= 0, ExcMessage("Read in of Material header failed (min_press)."));
-        AssertThrow(delta_press > 0, ExcMessage("Read in of Material header failed (delta_press)."));
-        AssertThrow(n_pressure > 0, ExcMessage("Read in of Material header failed (numpress)."));
-
-
-        max_temp = min_temp + (n_temperature-1) * delta_temp;
-        max_press = min_press + (n_pressure-1) * delta_press;
-
-        density_values.reinit(n_temperature,n_pressure);
-        thermal_expansivity_values.reinit(n_temperature,n_pressure);
-        specific_heat_values.reinit(n_temperature,n_pressure);
-        vp_values.reinit(n_temperature,n_pressure);
-        vs_values.reinit(n_temperature,n_pressure);
-        enthalpy_values.reinit(n_temperature,n_pressure);
-
-        unsigned int i = 0;
-        while (!in.eof())
-          {
-            double temp1,temp2;
-            double rho,alpha,cp,vp,vs,h;
-            in >> temp1 >> temp2;
-            in >> rho;
-            if (in.fail())
-              {
-                in.clear();
-                rho = density_values[(i-1)%n_temperature][(i-1)/n_temperature];
-              }
-            in >> alpha;
-            if (in.fail())
-              {
-                in.clear();
-                alpha = thermal_expansivity_values[(i-1)%n_temperature][(i-1)/n_temperature];
-              }
-            in >> cp;
-            if (in.fail())
-              {
-                in.clear();
-                cp = specific_heat_values[(i-1)%n_temperature][(i-1)/n_temperature];
-              }
-            in >> vp;
-            if (in.fail())
-              {
-                in.clear();
-                vp = vp_values[(i-1)%n_temperature][(i-1)/n_temperature];
-              }
-            in >> vs;
-            if (in.fail())
-              {
-                in.clear();
-                vs = vs_values[(i-1)%n_temperature][(i-1)/n_temperature];
-              }
-            in >> h;
-            if (in.fail())
-              {
-                in.clear();
-                h = enthalpy_values[(i-1)%n_temperature][(i-1)/n_temperature];
-              }
-
-            getline(in, temp);
-            if (in.eof())
-              break;
-
-            density_values[i%n_temperature][i/n_temperature]=rho;
-            thermal_expansivity_values[i%n_temperature][i/n_temperature]=alpha;
-            specific_heat_values[i%n_temperature][i/n_temperature]=cp;
-            vp_values[i%n_temperature][i/n_temperature]=vp;
-            vs_values[i%n_temperature][i/n_temperature]=vs;
-            enthalpy_values[i%n_temperature][i/n_temperature]=h;
-
-            i++;
-          }
-        AssertThrow(i == n_temperature*n_pressure, ExcMessage("Material table size not consistent with header."));
-
-      }
-    }
-
-
-
     template <int dim>
     void
     GrainSize<dim>::initialize()
@@ -620,16 +89,16 @@ namespace aspect
       for (unsigned i = 0; i < n_material_data; i++)
         {
           if (material_file_format == perplex)
-            material_lookup.push_back(std_cxx1x::shared_ptr<Lookup::MaterialLookup>
-                                      (new Lookup::PerplexReader(datadirectory+material_file_names[i],
-                                                                 use_bilinear_interpolation,
-                                                                 this->get_mpi_communicator())));
+            material_lookup
+            .push_back(std_cxx14::make_unique<MaterialModel::MaterialUtilities::Lookup::PerplexReader>(datadirectory+material_file_names[i],
+                       use_bilinear_interpolation,
+                       this->get_mpi_communicator()));
           else if (material_file_format == hefesto)
-            material_lookup.push_back(std_cxx1x::shared_ptr<Lookup::MaterialLookup>
-                                      (new Lookup::HeFESToReader(datadirectory+material_file_names[i],
-                                                                 datadirectory+derivatives_file_names[i],
-                                                                 use_bilinear_interpolation,
-                                                                 this->get_mpi_communicator())));
+            material_lookup
+            .push_back(std_cxx14::make_unique<MaterialModel::MaterialUtilities::Lookup::HeFESToReader>(datadirectory+material_file_names[i],
+                       datadirectory+derivatives_file_names[i],
+                       use_bilinear_interpolation,
+                       this->get_mpi_communicator()));
           else
             AssertThrow (false, ExcNotImplemented());
         }
@@ -1233,16 +702,21 @@ namespace aspect
 
 
     template <int dim>
-    std_cxx1x::array<std::pair<double, unsigned int>,2>
+    std::array<std::pair<double, unsigned int>,2>
     GrainSize<dim>::
     enthalpy_derivative (const typename Interface<dim>::MaterialModelInputs &in) const
     {
-      std_cxx1x::array<std::pair<double, unsigned int>,2> derivative;
+      std::array<std::pair<double, unsigned int>,2> derivative;
 
       if (in.current_cell.state() == IteratorState::valid)
         {
           // get the pressures and temperatures at the vertices of the cell
+#if DEAL_II_VERSION_GTE(9,3,0)
+          const QTrapezoid<dim> quadrature_formula;
+#else
           const QTrapez<dim> quadrature_formula;
+#endif
+
           const unsigned int n_q_points = quadrature_formula.size();
           FEValues<dim> fe_values (this->get_mapping(),
                                    this->get_fe(),
@@ -1280,7 +754,7 @@ namespace aspect
     GrainSize<dim>::
     evaluate(const typename Interface<dim>::MaterialModelInputs &in, typename Interface<dim>::MaterialModelOutputs &out) const
     {
-      for (unsigned int i=0; i<in.position.size(); ++i)
+      for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
         {
           // Use the adiabatic pressure instead of the real one, because of oscillations
           const double pressure = (this->get_adiabatic_conditions().is_initialized())
@@ -1337,7 +811,7 @@ namespace aspect
                   crossed_transition = phase;
               }
           else
-            for (unsigned int j=0; j<in.position.size(); ++j)
+            for (unsigned int j=0; j<in.n_evaluation_points(); ++j)
               for (unsigned int k=0; k<transition_depths.size(); ++k)
                 if ((phase_function(in.position[i], in.temperature[i], pressure, k)
                      != phase_function(in.position[j], in.temperature[j], in.pressure[j], k))
@@ -1347,7 +821,7 @@ namespace aspect
                   crossed_transition = k;
 
 
-          if (in.strain_rate.size() > 0)
+          if (in.requests_property(MaterialProperties::viscosity))
             {
               double effective_viscosity;
               double disl_viscosity = std::numeric_limits<double>::max();
@@ -1379,7 +853,7 @@ namespace aspect
             disl_viscosities_out->boundary_area_change_work_fractions[i] =
               boundary_area_change_work_fraction[get_phase_index(in.position[i],in.temperature[i],pressure)];
 
-          if (in.strain_rate.size() > 0)
+          if (in.requests_property(MaterialProperties::reaction_terms))
             for (unsigned int c=0; c<composition.size(); ++c)
               {
                 if (this->introspection().name_for_compositional_index(c) == "grain_size")
@@ -1408,20 +882,20 @@ namespace aspect
        */
       double average_temperature(0.0);
       double average_density(0.0);
-      for (unsigned int i = 0; i < in.position.size(); ++i)
+      for (unsigned int i = 0; i < in.n_evaluation_points(); ++i)
         {
           average_temperature += in.temperature[i];
           average_density += out.densities[i];
         }
-      average_temperature /= in.position.size();
-      average_density /= in.position.size();
+      average_temperature /= in.n_evaluation_points();
+      average_density /= in.n_evaluation_points();
 
-      std_cxx1x::array<std::pair<double, unsigned int>,2> dH;
+      std::array<std::pair<double, unsigned int>,2> dH;
 
       if (use_table_properties && use_enthalpy)
         dH = enthalpy_derivative(in);
 
-      for (unsigned int i = 0; i < in.position.size(); ++i)
+      for (unsigned int i = 0; i < in.n_evaluation_points(); ++i)
         {
           //Use the adiabatic pressure instead of the real one, because of oscillations
           const double pressure = (this->get_adiabatic_conditions().is_initialized())
@@ -1480,51 +954,53 @@ namespace aspect
         prm.enter_subsection("Grain size model");
         {
           prm.declare_entry ("Reference density", "3300",
-                             Patterns::Double (0),
-                             "Reference density $\\rho_0$. Units: $kg/m^3$.");
-          prm.declare_entry ("Reference temperature", "293",
-                             Patterns::Double (0),
-                             "The reference temperature $T_0$. Units: $K$.");
+                             Patterns::Double (0.),
+                             "The reference density $\\rho_0$. "
+                             "Units: \\si{\\kilogram\\per\\meter\\cubed}.");
+          prm.declare_entry ("Reference temperature", "293.",
+                             Patterns::Double (0.),
+                             "The reference temperature $T_0$. Units: \\si{\\kelvin}.");
           prm.declare_entry ("Viscosity", "5e24",
-                             Patterns::Double (0),
-                             "The value of the constant viscosity. Units: $kg/m/s$.");
+                             Patterns::Double (0.),
+                             "The value of the constant viscosity. "
+                             "Units: \\si{\\pascal\\second}.");
           prm.declare_entry ("Thermal conductivity", "4.7",
-                             Patterns::Double (0),
+                             Patterns::Double (0.),
                              "The value of the thermal conductivity $k$. "
-                             "Units: $W/m/K$.");
-          prm.declare_entry ("Reference specific heat", "1250",
-                             Patterns::Double (0),
+                             "Units: \\si{\\watt\\per\\meter\\per\\kelvin}.");
+          prm.declare_entry ("Reference specific heat", "1250.",
+                             Patterns::Double (0.),
                              "The value of the specific heat $cp$. "
-                             "Units: $J/kg/K$.");
+                             "Units: \\si{\\joule\\per\\kelvin\\per\\kilogram}.");
           prm.declare_entry ("Thermal expansion coefficient", "2e-5",
-                             Patterns::Double (0),
+                             Patterns::Double (0.),
                              "The value of the thermal expansion coefficient $\\alpha$. "
-                             "Units: $1/K$.");
+                             "Units: \\si{\\per\\kelvin}.");
           prm.declare_entry ("Reference compressibility", "4e-12",
-                             Patterns::Double (0),
+                             Patterns::Double (0.),
                              "The value of the reference compressibility. "
-                             "Units: $1/Pa$.");
+                             "Units: \\si{\\per\\pascal}.");
           prm.declare_entry ("Phase transition depths", "",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "A list of depths where phase transitions occur. Values must "
                              "monotonically increase. "
-                             "Units: $m$.");
+                             "Units: \\si{\\meter}.");
           prm.declare_entry ("Phase transition temperatures", "",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "A list of temperatures where phase transitions occur. Higher or lower "
-                             "temperatures lead to phase transition ocurring in smaller or greater "
+                             "temperatures lead to phase transition occurring in smaller or greater "
                              "depths than given in Phase transition depths, depending on the "
                              "Clapeyron slope given in Phase transition Clapeyron slopes. "
                              "List must have the same number of entries as Phase transition depths. "
-                             "Units: $K$.");
+                             "Units: \\si{\\kelvin}.");
           prm.declare_entry ("Phase transition widths", "",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "A list of widths for each phase transition. This is only use to specify "
                              "the region where the recrystallized grain size is assigned after material "
                              "has crossed a phase transition and should accordingly be chosen similar "
                              "to the maximum cell width expected at the phase transition."
                              "List must have the same number of entries as Phase transition depths. "
-                             "Units: $m$.");
+                             "Units: \\si{\\meter}.");
           prm.declare_entry ("Phase transition Clapeyron slopes", "",
                              Patterns::List (Patterns::Double()),
                              "A list of Clapeyron slopes for each phase transition. A positive "
@@ -1534,61 +1010,61 @@ namespace aspect
                              "temperature is smaller than the one given in Phase transition temperatures. "
                              "For negative slopes the other way round. "
                              "List must have the same number of entries as Phase transition depths. "
-                             "Units: $Pa/K$.");
+                             "Units: \\si{\\pascal\\per\\kelvin}.");
           prm.declare_entry ("Grain growth activation energy", "3.5e5",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "The activation energy for grain growth $E_g$. "
-                             "Units: $J/mol$.");
+                             "Units: \\si{\\joule\\per\\mole}.");
           prm.declare_entry ("Grain growth activation volume", "8e-6",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "The activation volume for grain growth $V_g$. "
-                             "Units: $m^3/mol$.");
-          prm.declare_entry ("Grain growth exponent", "3",
-                             Patterns::List (Patterns::Double(0)),
-                             "Exponent of the grain growth law $p_g$. This is an experimentally determined "
+                             "Units: \\si{\\meter\\cubed\\per\\mole}.");
+          prm.declare_entry ("Grain growth exponent", "3.",
+                             Patterns::List (Patterns::Double (0.)),
+                             "The exponent of the grain growth law $p_g$. This is an experimentally determined "
                              "grain growth constant. "
                              "Units: none.");
           prm.declare_entry ("Grain growth rate constant", "1.5e-5",
-                             Patterns::List (Patterns::Double(0)),
-                             "Prefactor of the Ostwald ripening grain growth law $G_0$. "
+                             Patterns::List (Patterns::Double (0.)),
+                             "The prefactor for the Ostwald ripening grain growth law $G_0$. "
                              "This is dependent on water content, which is assumed to be "
                              "50 H/$10^6$ Si for the default value. "
-                             "Units: $m^{p_g}/s$.");
+                             "Units: \\si{\\meter}$^{p_g}$\\si{\\per\\second}.");
           prm.declare_entry ("Minimum grain size", "5e-6",
-                             Patterns::Double(0),
-                             "Minimum allowable grain size. The grain size will be limited to be "
+                             Patterns::Double (0.),
+                             "The minimum allowable grain size. The grain size will be limited to be "
                              "larger than this value. This can be used to damp out oscillations, or "
                              "to limit the viscosity variation due to grain size. "
-                             "Units: $m$.");
-          prm.declare_entry ("Reciprocal required strain", "10",
-                             Patterns::List (Patterns::Double(0)),
-                             "This parameters $\\lambda$ gives an estimate of the strain necessary "
+                             "Units: \\si{\\meter}.");
+          prm.declare_entry ("Reciprocal required strain", "10.",
+                             Patterns::List (Patterns::Double (0.)),
+                             "This parameter ($\\lambda$) gives an estimate of the strain necessary "
                              "to achieve a new grain size. ");
           prm.declare_entry ("Recrystallized grain size", "",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "The grain size $d_{ph}$ to that a phase will be reduced to when crossing a phase transition. "
                              "When set to zero, grain size will not be reduced. "
-                             "Units: m.");
+                             "Units: \\si{\\meter}.");
           prm.declare_entry ("Use paleowattmeter", "true",
                              Patterns::Bool (),
                              "A flag indicating whether the computation should be use the "
                              "paleowattmeter approach of Austin and Evans (2007) for grain size reduction "
-                             "in the dislocation creep regime (if true) or the paleopiezometer aprroach "
+                             "in the dislocation creep regime (if true) or the paleopiezometer approach "
                              "from Hall and Parmetier (2003) (if false).");
           prm.declare_entry ("Average specific grain boundary energy", "1.0",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "The average specific grain boundary energy $\\gamma$. "
-                             "Units: $J/m^2$.");
+                             "Units: \\si{\\joule\\per\\meter\\squared}.");
           prm.declare_entry ("Work fraction for boundary area change", "0.1",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "The fraction $\\chi$ of work done by dislocation creep to change the grain boundary area. "
-                             "Units: $J/m^2$.");
-          prm.declare_entry ("Geometric constant", "3",
-                             Patterns::List (Patterns::Double(0)),
-                             "Geometric constant $c$ used in the paleowattmeter grain size reduction law. "
+                             "Units: \\si{\\joule\\per\\meter\\squared}.");
+          prm.declare_entry ("Geometric constant", "3.",
+                             Patterns::List (Patterns::Double (0.)),
+                             "The geometric constant $c$ used in the paleowattmeter grain size reduction law. "
                              "Units: none.");
           prm.declare_entry ("Dislocation viscosity iteration threshold", "1e-3",
-                             Patterns::Double(0),
+                             Patterns::Double (0.),
                              "We need to perform an iteration inside the computation "
                              "of the dislocation viscosity, because it depends on the "
                              "dislocation strain rate, which depends on the dislocation "
@@ -1603,44 +1079,44 @@ namespace aspect
                              "viscosity itself. This number determines the maximum "
                              "number of iterations that are performed. ");
           prm.declare_entry ("Dislocation creep exponent", "3.5",
-                             Patterns::List (Patterns::Double(0)),
-                             "Power-law exponent $n_{dis}$ for dislocation creep. "
+                             Patterns::List (Patterns::Double (0.)),
+                             "The power-law exponent $n_{dis}$ for dislocation creep. "
                              "Units: none.");
           prm.declare_entry ("Dislocation activation energy", "4.8e5",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "The activation energy for dislocation creep $E_{dis}$. "
-                             "Units: $J/mol$.");
+                             "Units: \\si{\\joule\\per\\mole}.");
           prm.declare_entry ("Dislocation activation volume", "1.1e-5",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "The activation volume for dislocation creep $V_{dis}$. "
-                             "Units: $m^3/mol$.");
+                             "Units: \\si{\\meter\\cubed\\per\\mole}.");
           prm.declare_entry ("Dislocation creep prefactor", "4.5e-15",
-                             Patterns::List (Patterns::Double(0)),
-                             "Prefactor for the dislocation creep law $A_{dis}$. "
-                             "Units: $Pa^{-n_{dis}}/s$.");
-          prm.declare_entry ("Diffusion creep exponent", "1",
-                             Patterns::List (Patterns::Double(0)),
-                             "Power-law exponent $n_{diff}$ for diffusion creep. "
+                             Patterns::List (Patterns::Double (0.)),
+                             "The prefactor for the dislocation creep law $A_{dis}$. "
+                             "Units: \\si{\\pascal}$^{-n_{dis}}$\\si{\\per\\second}.");
+          prm.declare_entry ("Diffusion creep exponent", "1.",
+                             Patterns::List (Patterns::Double (0.)),
+                             "The power-law exponent $n_{diff}$ for diffusion creep. "
                              "Units: none.");
           prm.declare_entry ("Diffusion activation energy", "3.35e5",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "The activation energy for diffusion creep $E_{diff}$. "
-                             "Units: $J/mol$.");
+                             "Units: \\si{\\joule\\per\\mole}.");
           prm.declare_entry ("Diffusion activation volume", "4e-6",
-                             Patterns::List (Patterns::Double(0)),
+                             Patterns::List (Patterns::Double (0.)),
                              "The activation volume for diffusion creep $V_{diff}$. "
-                             "Units: $m^3/mol$.");
+                             "Units: \\si{\\meter\\cubed\\per\\mole}.");
           prm.declare_entry ("Diffusion creep prefactor", "7.4e-15",
-                             Patterns::List (Patterns::Double(0)),
-                             "Prefactor for the diffusion creep law $A_{diff}$. "
-                             "Units: $m^{p_{diff}} Pa^{-n_{diff}}/s$.");
-          prm.declare_entry ("Diffusion creep grain size exponent", "3",
-                             Patterns::List (Patterns::Double(0)),
-                             "Diffusion creep grain size exponent $p_{diff}$ that determines the "
-                             "dependence of vescosity on grain size. "
+                             Patterns::List (Patterns::Double (0.)),
+                             "The prefactor for the diffusion creep law $A_{diff}$. "
+                             "Units: \\si{\\meter}$^{p_{diff}}$\\si{\\pascal}$^{-n_{diff}}$\\si{\\per\\second}.");
+          prm.declare_entry ("Diffusion creep grain size exponent", "3.",
+                             Patterns::List (Patterns::Double (0.)),
+                             "The diffusion creep grain size exponent $p_{diff}$ that determines the "
+                             "dependence of viscosity on grain size. "
                              "Units: none.");
-          prm.declare_entry ("Maximum temperature dependence of viscosity", "100",
-                             Patterns::Double (0),
+          prm.declare_entry ("Maximum temperature dependence of viscosity", "100.",
+                             Patterns::Double (0.),
                              "The factor by which viscosity at adiabatic temperature and ambient temperature "
                              "are allowed to differ (a value of x means that the viscosity can be x times higher "
                              "or x times lower compared to the value at adiabatic temperature. This parameter "
@@ -1648,19 +1124,19 @@ namespace aspect
                              "varying viscosity over the whole mantle range. "
                              "Units: none.");
           prm.declare_entry ("Minimum viscosity", "1e18",
-                             Patterns::Double (0),
+                             Patterns::Double (0.),
                              "The minimum viscosity that is allowed in the whole model domain. "
-                             "Units: Pa s.");
+                             "Units: Pa \\, s.");
           prm.declare_entry ("Maximum viscosity", "1e26",
-                             Patterns::Double (0),
+                             Patterns::Double (0.),
                              "The maximum viscosity that is allowed in the whole model domain. "
-                             "Units: Pa s.");
-          prm.declare_entry ("Minimum specific heat", "500",
-                             Patterns::Double (0),
+                             "Units: Pa \\, s.");
+          prm.declare_entry ("Minimum specific heat", "500.",
+                             Patterns::Double (0.),
                              "The minimum specific heat that is allowed in the whole model domain. "
                              "Units: J/kg/K.");
-          prm.declare_entry ("Maximum specific heat", "6000",
-                             Patterns::Double (0),
+          prm.declare_entry ("Maximum specific heat", "6000.",
+                             Patterns::Double (0.),
                              "The maximum specific heat that is allowed in the whole model domain. "
                              "Units: J/kg/K.");
           prm.declare_entry ("Minimum thermal expansivity", "1e-5",
@@ -1676,13 +1152,13 @@ namespace aspect
                              "The maximum number of substeps over the temperature pressure range "
                              "to calculate the averaged enthalpy gradient over a cell.");
           prm.declare_entry ("Minimum grain size", "1e-5",
-                             Patterns::Double (0),
+                             Patterns::Double (0.),
                              "The minimum grain size that is used for the material model. This parameter "
                              "is introduced to limit local viscosity contrasts, but still allows for a widely "
                              "varying viscosity over the whole mantle range. "
-                             "Units: m.");
+                             "Units: \\si{\\meter}.");
           prm.declare_entry ("Lower mantle grain size scaling", "1.0",
-                             Patterns::Double (0),
+                             Patterns::Double (0.),
                              "A scaling factor for the grain size in the lower mantle. In models where the "
                              "high grain size contrast between the upper and lower mantle causes numerical "
                              "problems, the grain size in the lower mantle can be scaled to a larger value, "
@@ -1694,8 +1170,8 @@ namespace aspect
                              "Units: none.");
           prm.declare_entry ("Advect logarithm of grain size", "false",
                              Patterns::Bool (),
-                             "Whether to advect the logarithm of the grain size or the "
-                             "grain size. The equation and the physics are the same, "
+                             "This parameter determines whether to advect the logarithm of the grain size "
+                             "or the grain size itself. The equation and the physics are the same, "
                              "but for problems with high grain size gradients it might "
                              "be preferable to advect the logarithm. ");
           prm.declare_entry ("Data directory", "$ASPECT_SOURCE_DIR/data/material-model/steinberger/",
@@ -1719,8 +1195,8 @@ namespace aspect
                              "be in order with the ordering of the fields). ");
           prm.declare_entry ("Use table properties", "false",
                              Patterns::Bool(),
-                             "Whether to use the table properties also for "
-                             "density, thermal expansivity and specific heat. "
+                             "This parameter determines whether to use the table properties "
+                             "also for density, thermal expansivity and specific heat. "
                              "If false the properties are generated as in the "
                              "simple compressible plugin.");
           prm.declare_entry ("Material file format", "perplex",
@@ -1729,14 +1205,14 @@ namespace aspect
                              "tables.");
           prm.declare_entry ("Use enthalpy for material properties", "true",
                              Patterns::Bool(),
-                             "Whether to use the enthalpy to calculate thermal "
-                             "expansivity and specific heat (if true) or use the "
+                             "This parameter determines whether to use the enthalpy to calculate "
+                             "the thermal expansivity and specific heat (if true) or use the "
                              "thermal expansivity and specific heat values from "
                              "the material properties table directly (if false).");
           prm.declare_entry ("Bilinear interpolation", "true",
                              Patterns::Bool (),
-                             "Whether to use bilinear interpolation to compute "
-                             "material properties (slower but more accurate).");
+                             "This parameter determines whether to use bilinear interpolation "
+                             "to compute material properties (slower but more accurate).");
         }
         prm.leave_subsection();
       }
@@ -1976,21 +1452,19 @@ namespace aspect
       // These properties are useful as output, but will also be used by the
       // heating model to reduce shear heating by the amount of work done to
       // reduce grain size.
-      if (out.template get_additional_output<DislocationViscosityOutputs<dim> >() == NULL)
+      if (out.template get_additional_output<DislocationViscosityOutputs<dim> >() == nullptr)
         {
-          const unsigned int n_points = out.viscosities.size();
+          const unsigned int n_points = out.n_evaluation_points();
           out.additional_outputs.push_back(
-            std_cxx11::shared_ptr<MaterialModel::AdditionalMaterialOutputs<dim> >
-            (new MaterialModel::DislocationViscosityOutputs<dim> (n_points)));
+            std_cxx14::make_unique<MaterialModel::DislocationViscosityOutputs<dim>> (n_points));
         }
 
       // These properties are only output properties.
-      if (out.template get_additional_output<SeismicAdditionalOutputs<dim> >() == NULL)
+      if (out.template get_additional_output<SeismicAdditionalOutputs<dim> >() == nullptr)
         {
-          const unsigned int n_points = out.viscosities.size();
+          const unsigned int n_points = out.n_evaluation_points();
           out.additional_outputs.push_back(
-            std_cxx11::shared_ptr<MaterialModel::AdditionalMaterialOutputs<dim> >
-            (new MaterialModel::SeismicAdditionalOutputs<dim> (n_points)));
+            std_cxx14::make_unique<MaterialModel::SeismicAdditionalOutputs<dim>> (n_points));
         }
     }
   }
@@ -2004,9 +1478,9 @@ namespace aspect
     ASPECT_REGISTER_MATERIAL_MODEL(GrainSize,
                                    "grain size",
                                    "A material model that relies on compositional "
-                                   "fields that stand for average grain sizes of a mineral "
-                                   "phase and source terms for them that determine the grain "
-                                   "size evolution in dependence of the strain rate, "
+                                   "fields that correspond to the average grain sizes of a "
+                                   "mineral phase and source terms that determine the grain "
+                                   "size evolution in terms of the strain rate, "
                                    "temperature, phase transitions, and the creep regime. "
                                    "This material model only works if a compositional field "
                                    "named 'grain_size' is present. "
@@ -2019,11 +1493,18 @@ namespace aspect
                                    "Other material parameters are either prescribed similar "
                                    "to the 'simple' material model, or read from data files "
                                    "that were generated by the Perplex or Hefesto software. "
-                                   "The material model "
+                                   "This material model "
                                    "is described in more detail in Dannberg, J., Z. Eilon, "
                                    "U. Faul, R. Gassmoeller, P. Moulik, and R. Myhill (2017), "
                                    "The importance of grain size to mantle dynamics and "
                                    "seismological observations, Geochem. Geophys. Geosyst., "
                                    "18, 3034–3061, doi:10.1002/2017GC006944.")
+
+#define INSTANTIATE(dim) \
+  template class DislocationViscosityOutputs<dim>;
+
+    ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
   }
 }

@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2014 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2014 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -23,7 +23,8 @@
 
 #include <aspect/material_model/interface.h>
 #include <aspect/simulator_access.h>
-#include <deal.II/base/parameter_handler.h>
+#include <aspect/material_model/rheology/drucker_prager.h>
+#include <aspect/material_model/equation_of_state/multicomponent_incompressible.h>
 
 namespace aspect
 {
@@ -71,8 +72,8 @@ namespace aspect
          * inputs in @p in. If MaterialModelInputs.strain_rate has the length
          * 0, then the viscosity does not need to be computed.
          */
-        virtual void evaluate(const MaterialModel::MaterialModelInputs<dim> &in,
-                              MaterialModel::MaterialModelOutputs<dim> &out) const;
+        void evaluate(const MaterialModel::MaterialModelInputs<dim> &in,
+                      MaterialModel::MaterialModelOutputs<dim> &out) const override;
 
         /**
          * @name Qualitative properties one can ask a material model
@@ -82,7 +83,7 @@ namespace aspect
         /**
          * This model is not compressible, so this returns false.
          */
-        virtual bool is_compressible () const;
+        bool is_compressible () const override;
         /**
          * @}
          */
@@ -91,7 +92,7 @@ namespace aspect
          * @name Reference quantities
          * @{
          */
-        virtual double reference_viscosity () const;
+        double reference_viscosity () const override;
         /**
          * @}
          */
@@ -111,27 +112,14 @@ namespace aspect
         /**
          * Read the parameters this class declares from the parameter file.
          */
-        virtual
         void
-        parse_parameters (ParameterHandler &prm);
+        parse_parameters (ParameterHandler &prm) override;
+
         /**
          * @}
          */
 
       private:
-        /**
-         * From a list of compositional fields of length N, we come up with an
-         * N+1 length list that which also includes the fraction of
-         * ``background mantle''. This list should sum to one, and is
-         * interpreted as volume fractions.  If the sum of the
-         * compositional_fields is greater than one, we assume that there is
-         * no background mantle (i.e., that field value is zero).  Otherwise,
-         * the difference between the sum of the compositional fields and 1.0
-         * is assumed to be the amount of background mantle.
-         */
-        const std::vector<double> compute_volume_fractions(
-          const std::vector<double> &compositional_fields) const;
-
         /**
          * From a list of static friction of coefficient, dynamic friction of
          * coefficient, cohesions and background viscosity for N + 1 fields
@@ -139,42 +127,23 @@ namespace aspect
          * drucker prager model with coefficient of friction dependent on the
          * strain rate.
          */
+        const std::vector<double> compute_viscosities(const double pressure,
+                                                      const SymmetricTensor<2,dim> &strain_rate) const;
 
-        const std::vector<double> compute_viscosities(
-          const double pressure,
-          const SymmetricTensor<2,dim> &strain_rate) const;
         /**
          * Reference temperature for thermal expansion.  All components use
          * the same reference_T.
          */
         double reference_T;
 
-        /**
-         * Enumeration for selecting which averaging scheme to use. Select
-         * between harmonic, arithmetic, geometric, and maximum_composition.
-         * The max composition scheme simply uses the parameter of whichever
-         * field has the highest volume fraction.
-         */
-        enum AveragingScheme
-        {
-          harmonic,
-          arithmetic,
-          geometric,
-          maximum_composition
-        };
+        MaterialUtilities::CompositionalAveragingOperation viscosity_averaging;
 
+        EquationOfState::MulticomponentIncompressible<dim> equation_of_state;
 
-        AveragingScheme viscosity_averaging;
-
-        double average_value (const std::vector<double> &composition,
-                              const std::vector<double> &parameter_values,
-                              const enum AveragingScheme &average_type) const;
-
-
-        /**
-         * Vector for field densities, read from parameter file .
-         */
-        std::vector<double> densities;
+        /*
+          * Objects for computing plastic stresses, viscosities, and additional outputs
+          */
+        Rheology::DruckerPrager<dim> drucker_prager_plasticity;
 
         /**
          * The dynamic coefficient of friction
@@ -209,20 +178,9 @@ namespace aspect
         double minimum_strain_rate;
 
         /**
-         * Vector for field thermal expnsivities, read from parameter file.
-         */
-        std::vector<double> thermal_expansivities;
-
-        /**
          * Vector for field thermal conductivities, read from parameter file.
          */
         std::vector<double> thermal_conductivities;
-
-        /**
-         * Vector for field specific heats, read from parameter file.
-         */
-        std::vector<double> specific_heats;
-
     };
 
   }

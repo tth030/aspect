@@ -1,3 +1,22 @@
+/*
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
+
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
 #include <aspect/initial_composition/interface.h>
 #include <aspect/geometry_model/box.h>
 #include <aspect/postprocess/interface.h>
@@ -15,7 +34,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/base/table.h>
 #include <deal.II/base/table_indices.h>
-#include <deal.II/base/std_cxx1x/array.h>
+#include <array>
 
 
 namespace aspect
@@ -101,11 +120,11 @@ namespace aspect
           const unsigned int porosity_idx = this->introspection().compositional_index_for_name("porosity");
           const double strain_rate_dependence = (1.0 - dislocation_creep_exponent) / dislocation_creep_exponent;
 
-          for (unsigned int i=0; i<in.position.size(); ++i)
+          for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
             {
               double porosity = std::max(in.composition[i][porosity_idx],1e-4);
               out.viscosities[i] = eta_0 * std::exp(alpha*(porosity - background_porosity));
-              if (in.strain_rate.size())
+              if (in.requests_property(MaterialModel::MaterialProperties::viscosity))
                 {
                   const SymmetricTensor<2,dim> shear_strain_rate = in.strain_rate[i]
                                                                    - 1./dim * trace(in.strain_rate[i]) * unit_symmetric_tensor<dim>();
@@ -129,7 +148,7 @@ namespace aspect
           aspect::MaterialModel::MeltOutputs<dim> *melt_out = out.template get_additional_output<aspect::MaterialModel::MeltOutputs<dim> >();
 
           if (melt_out != NULL)
-            for (unsigned int i=0; i<in.position.size(); ++i)
+            for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
               {
                 double porosity = std::max(in.composition[i][porosity_idx],1e-4);
 
@@ -187,25 +206,27 @@ namespace aspect
         {
           prm.declare_entry ("Reference solid density", "3000",
                              Patterns::Double (0),
-                             "Reference density of the solid $\\rho_{s,0}$. Units: $kg/m^3$.");
+                             "Reference density of the solid $\\rho_{s,0}$. "
+                             "Units: \\si{\\kilogram\\per\\meter\\cubed}.");
           prm.declare_entry ("Reference melt density", "3000",
                              Patterns::Double (0),
-                             "Reference density of the melt/fluid$\\rho_{f,0}$. Units: $kg/m^3$.");
+                             "Reference density of the melt/fluid$\\rho_{f,0}$. "
+                             "Units: \\si{\\kilogram\\per\\meter\\cubed}.");
           prm.declare_entry ("Reference shear viscosity", "1.41176e7",
                              Patterns::Double (0),
                              "The value of the constant viscosity $\\eta_0$ of the solid matrix. "
-                             "Units: $Pa s$.");
+                             "Units: \\si{\\pascal\\second}.");
           prm.declare_entry ("Reference compaction viscosity", "1.41176e8",
                              Patterns::Double (0),
                              "The value of the constant volumetric viscosity $\\xi_0$ of the solid matrix. "
-                             "Units: $Pa s$.");
+                             "Units: \\si{\\pascal\\second}.");
           prm.declare_entry ("Reference melt viscosity", "100.0",
                              Patterns::Double (0),
-                             "The value of the constant melt viscosity $\\eta_f$. Units: $Pa s$.");
+                             "The value of the constant melt viscosity $\\eta_f$. Units: \\si{\\pascal\\second}.");
           prm.declare_entry ("Reference permeability", "5e-9",
                              Patterns::Double(),
                              "Reference permeability of the solid host rock."
-                             "Units: $m^2$.");
+                             "Units: \\si{\\meter\\squared}.");
           prm.declare_entry ("Dislocation creep exponent", "6.0",
                              Patterns::Double(0),
                              "Power-law exponent $n_{dis}$ for dislocation creep. "
@@ -294,7 +315,7 @@ namespace aspect
       private:
         double noise_amplitude;
         double background_porosity;
-        std_cxx1x::array<unsigned int,dim> grid_intervals;
+        std::array<unsigned int,dim> grid_intervals;
         Functions::InterpolatedUniformGridData<dim> *interpolate_noise;
     };
 
@@ -304,20 +325,14 @@ namespace aspect
     void
     ShearBandsInitialCondition<dim>::initialize ()
     {
-      if (dynamic_cast<const ShearBandsMaterial<dim> *>(&this->get_material_model()) != NULL)
-        {
-          const ShearBandsMaterial<dim> *
-          material_model
-            = dynamic_cast<const ShearBandsMaterial<dim> *>(&this->get_material_model());
+      AssertThrow(Plugins::plugin_type_matches<const ShearBandsMaterial<dim>>(this->get_material_model()),
+                  ExcMessage("Initial condition shear bands only works with the material model shear bands."));
 
-          background_porosity = material_model->get_background_porosity();
-        }
-      else
-        {
-          AssertThrow(false,
-                      ExcMessage("Initial condition shear bands only works with the material model shear bands."));
-        }
+      const ShearBandsMaterial<dim> &
+      material_model
+        = Plugins::get_plugin_as_type<const ShearBandsMaterial<dim>>(this->get_material_model());
 
+      background_porosity = material_model.get_background_porosity();
 
       AssertThrow(noise_amplitude < background_porosity,
                   ExcMessage("Amplitude of the white noise must be smaller "
@@ -330,21 +345,16 @@ namespace aspect
 
       Table<dim,double> white_noise;
       white_noise.TableBase<dim,double>::reinit(size_idx);
-      std_cxx1x::array<std::pair<double,double>,dim> grid_extents;
+      std::array<std::pair<double,double>,dim> grid_extents;
 
-      if (dynamic_cast<const GeometryModel::Box<dim> *>(&this->get_geometry_model()) != NULL)
-        {
-          const GeometryModel::Box<dim> *
-          geometry_model
-            = dynamic_cast<const GeometryModel::Box<dim> *>(&this->get_geometry_model());
+      AssertThrow(Plugins::plugin_type_matches<const GeometryModel::Box<dim>>(this->get_geometry_model()),
+                  ExcMessage("Initial condition shear bands only works with the box geometry model."));
 
-          extents = geometry_model->get_extents();
-        }
-      else
-        {
-          AssertThrow(false,
-                      ExcMessage("Initial condition shear bands only works with the box geometry model."));
-        }
+      const GeometryModel::Box<dim> &
+      geometry_model
+        = Plugins::get_plugin_as_type<const GeometryModel::Box<dim>>(this->get_geometry_model());
+
+      extents = geometry_model.get_extents();
 
       for (unsigned int d=0; d<dim; ++d)
         {
@@ -487,20 +497,14 @@ namespace aspect
     void
     PlaneWaveMeltBandsInitialCondition<dim>::initialize ()
     {
-      if (dynamic_cast<const ShearBandsMaterial<dim> *>(&this->get_material_model()) != NULL)
-        {
-          const ShearBandsMaterial<dim> *
-          material_model
-            = dynamic_cast<const ShearBandsMaterial<dim> *>(&this->get_material_model());
+      AssertThrow(Plugins::plugin_type_matches<ShearBandsMaterial<dim>>(this->get_material_model()),
+                  ExcMessage("Initial condition shear bands only works with the material model shear bands."));
 
-          background_porosity = material_model->get_background_porosity();
-        }
-      else
-        {
-          AssertThrow(false,
-                      ExcMessage("Initial condition plane wave melt bands only works with the material model shear bands."));
-        }
+      const ShearBandsMaterial<dim> &
+      material_model
+        = Plugins::get_plugin_as_type<const ShearBandsMaterial<dim>>(this->get_material_model());
 
+      background_porosity = material_model.get_background_porosity();
 
       AssertThrow(amplitude < 1.0,
                   ExcMessage("Amplitude of the melt bands must be smaller "
@@ -739,32 +743,24 @@ namespace aspect
     void
     ShearBandsGrowthRate<dim>::initialize ()
     {
-      if (dynamic_cast<const ShearBandsMaterial<dim> *>(&this->get_material_model()) != NULL)
-        {
-          const ShearBandsMaterial<dim> *
-          material_model
-            = dynamic_cast<const ShearBandsMaterial<dim> *>(&this->get_material_model());
+      AssertThrow(Plugins::plugin_type_matches<const ShearBandsMaterial<dim>>(this->get_material_model()),
+                  ExcMessage("Postprocessor shear bands growth rate only works with the material model shear bands."));
 
-          background_porosity = material_model->get_background_porosity();
-          eta_0               = material_model->reference_viscosity();
-          xi_0                = material_model->get_reference_compaction_viscosity();
-          alpha               = material_model->get_porosity_exponent();
-        }
-      else
-        {
-          AssertThrow(false,
-                      ExcMessage("Postprocessor shear bands growth rate only works with the material model shear bands."));
-        }
+      const ShearBandsMaterial<dim> &
+      material_model
+        = Plugins::get_plugin_as_type<const ShearBandsMaterial<dim>>(this->get_material_model());
 
-      const PlaneWaveMeltBandsInitialCondition<dim> *
-      initial_composition
-        = this->get_initial_composition_manager().template find_initial_composition_model<PlaneWaveMeltBandsInitialCondition<dim> > ();
+      background_porosity = material_model.get_background_porosity();
+      eta_0               = material_model.reference_viscosity();
+      xi_0                = material_model.get_reference_compaction_viscosity();
+      alpha               = material_model.get_porosity_exponent();
 
-      AssertThrow(initial_composition != NULL,
-                  ExcMessage("Postprocessor shear bands growth rate only works with the plane wave melt bands initial composition."));
+      const PlaneWaveMeltBandsInitialCondition<dim> &initial_composition
+        = this->get_initial_composition_manager().template
+          get_matching_initial_composition_model<PlaneWaveMeltBandsInitialCondition<dim> > ();
 
-      amplitude           = initial_composition->get_wave_amplitude();
-      initial_band_angle  = initial_composition->get_initial_band_angle();
+      amplitude           = initial_composition.get_wave_amplitude();
+      initial_band_angle  = initial_composition.get_initial_band_angle();
     }
 
 
@@ -777,18 +773,12 @@ namespace aspect
       const Point<dim> upper_boundary_point = this->get_geometry_model().representative_point(0.0);
       const Point<dim> lower_boundary_point = this->get_geometry_model().representative_point(this->get_geometry_model().maximal_depth());
 
-      // get the map of boundary indicators and velocity bounfary conditions
-      const std::map<types::boundary_id,std_cxx11::shared_ptr<BoundaryVelocity::Interface<dim> > >
-      bvs = this->get_prescribed_boundary_velocity();
       types::boundary_id upper_boundary = this->get_geometry_model().translate_symbolic_boundary_name_to_id("top");
       types::boundary_id lower_boundary = this->get_geometry_model().translate_symbolic_boundary_name_to_id("bottom");
 
-      // get the velocities at the upper and lower boundary
-      typename std::map<types::boundary_id,std_cxx11::shared_ptr<BoundaryVelocity::Interface<dim> > >::const_iterator
-      it = bvs.find(upper_boundary);
-      const double max_velocity = it->second->boundary_velocity(it->first,upper_boundary_point).norm();
-      it = bvs.find(lower_boundary);
-      const double min_velocity = it->second->boundary_velocity(it->first,lower_boundary_point).norm();
+      const BoundaryVelocity::Manager<dim> &bm = this->get_boundary_velocity_manager();
+      const double max_velocity = bm.boundary_velocity(upper_boundary, upper_boundary_point).norm();
+      const double min_velocity = bm.boundary_velocity(lower_boundary, lower_boundary_point).norm();
 
       const double strain_rate = 0.5 * (max_velocity + min_velocity) / this->get_geometry_model().maximal_depth();
       const double theta = std::atan(std::sin(initial_band_angle) / (std::cos(initial_band_angle) - time * strain_rate/sqrt(2.0) * std::sin(initial_band_angle)));
@@ -847,12 +837,17 @@ namespace aspect
                                             :
                                             (1.0 - background_porosity) / (amplitude * background_porosity) * global_velocity_divergence_min);
 
+      const double relative_error = (analytical_growth_rate != 0.0) ?
+                                    std::abs(numerical_growth_rate - analytical_growth_rate)/analytical_growth_rate
+                                    :
+                                    1.0;
+
       // compute and output error
       std::ostringstream os;
       os << std::scientific << initial_band_angle
          << ", " << analytical_growth_rate
          << ", " << numerical_growth_rate
-         << ", " << std::abs(numerical_growth_rate - analytical_growth_rate)/analytical_growth_rate;
+         << ", " << relative_error;
 
       return std::make_pair("Initial angle, Analytical growth rate, Modelled growth rate, Error:", os.str());
     }

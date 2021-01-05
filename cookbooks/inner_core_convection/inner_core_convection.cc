@@ -1,3 +1,23 @@
+/*
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
+
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
+
 #include <aspect/material_model/simple.h>
 #include <aspect/heating_model/interface.h>
 #include <aspect/gravity_model/radial.h>
@@ -149,8 +169,7 @@ namespace aspect
       if (compute_quadratic_pressure_profile)
         {
           // Compute a quadratic hydrostatic pressure profile, based on a linear gravity model.
-          AssertThrow (dynamic_cast<const GravityModel::RadialLinear<dim>*>(&this->get_gravity_model())
-                       != 0,
+          AssertThrow (Plugins::plugin_type_matches<const GravityModel::RadialLinear<dim>>(this->get_gravity_model()),
                        ExcMessage ("Automatic computation of the hydrostatic pressure profile is "
                                    "only implemented for the 'radial linear' gravity model."));
 
@@ -180,7 +199,7 @@ namespace aspect
 
       // We want the right-hand side of the momentum equation to be (- Ra T gravity) and
       // density * cp to be 1
-      for (unsigned int q=0; q < in.position.size(); ++q)
+      for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
         {
           out.densities[q] = - out.thermal_expansion_coefficients[q] * in.temperature[q]
                              + phase_function (in.position[q], in.temperature[q]) * transition_density_change;
@@ -234,13 +253,13 @@ namespace aspect
                              Patterns::Double (0),
                              "The distance from the center of the Earth where the phase "
                              "transition occurs. "
-                             "Units: m.");
+                             "Units: \\si{\\meter}.");
           prm.declare_entry ("Phase transition width", "0.0",
                              Patterns::Double (0),
                              "The width of the phase transition. The argument of the phase function "
                              "is scaled with this value, leading to a jump between phases "
                              "for a value of zero and a gradual transition for larger values. "
-                             "Units: m.");
+                             "Units: \\si{\\meter}.");
           prm.declare_entry ("Phase transition temperature", "0.0",
                              Patterns::Double (0),
                              "The temperature at which the phase transition occurs in the depth "
@@ -248,7 +267,7 @@ namespace aspect
                              "temperatures lead to phase transition occurring in shallower or greater "
                              "depths, depending on the Clapeyron slope given in 'Phase transition "
                              "Clapeyron slope'. "
-                             "Units: K.");
+                             "Units: \\si{\\kelvin}.");
           prm.declare_entry ("Phase transition Clapeyron slope", "0.0",
                              Patterns::Double (),
                              "The Clapeyron slope of the phase transition. A positive "
@@ -262,7 +281,7 @@ namespace aspect
                              Patterns::Double (),
                              "The density change that occurs across the phase transition. "
                              "A positive value means that the density increases with depth. "
-                             "Units: kg/m$^3$.");
+                             "Units: \\si{\\kilogram\\per\\meter\\cubed}.");
           prm.declare_entry ("Compute quadratic pressure profile from gravity", "true",
                              Patterns::Bool (),
                              "Whether to automatically compute the hydrostatic pressure profile "

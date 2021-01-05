@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -26,7 +26,7 @@
 #include <aspect/plugins.h>
 #include <aspect/simulator_access.h>
 
-#include <deal.II/base/std_cxx11/shared_ptr.h>
+#include <memory>
 #include <deal.II/base/table_handler.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/distributed/tria.h>
@@ -175,9 +175,9 @@ namespace aspect
          * Destructor. Made virtual since this class has virtual member
          * functions.
          */
-        virtual ~Manager ();
+        ~Manager () override;
 
-        /*
+        /**
          * Update all of the mesh refinement objects that have been requested
          * in the input file. Individual mesh refinement objects may choose to
          * implement an update function to modify object variables once per
@@ -221,6 +221,28 @@ namespace aspect
          */
         void
         parse_parameters (ParameterHandler &prm);
+
+        /**
+         * Go through the list of all mesh refinement strategies that have been selected
+         * in the input file (and are consequently currently active) and return
+         * true if one of them has the desired type specified by the template
+         * argument.
+         */
+        template <typename MeshRefinementType>
+        bool
+        has_matching_mesh_refinement_strategy () const;
+
+        /**
+         * Go through the list of all mesh refinement strategies that have been selected
+         * in the input file (and are consequently currently active) and see
+         * if one of them has the type specified by the template
+         * argument or can be casted to that type. If so, return a reference
+         * to it. If no mesh refinement strategy is active that matches the
+         * given type, throw an exception.
+         */
+        template <typename MeshRefinementType>
+        const MeshRefinementType &
+        get_matching_mesh_refinement_strategy () const;
 
         /**
          * A function that is used to register mesh refinement objects in such
@@ -296,8 +318,50 @@ namespace aspect
          * A list of mesh refinement objects that have been requested in the
          * parameter file.
          */
-        std::list<std_cxx11::shared_ptr<Interface<dim> > > mesh_refinement_objects;
+        std::list<std::unique_ptr<Interface<dim> > > mesh_refinement_objects;
     };
+
+
+
+    template <int dim>
+    template <typename MeshRefinementType>
+    inline
+    bool
+    Manager<dim>::has_matching_mesh_refinement_strategy () const
+    {
+      for (typename std::list<std::unique_ptr<Interface<dim> > >::const_iterator
+           p = mesh_refinement_objects.begin();
+           p != mesh_refinement_objects.end(); ++p)
+        if (Plugins::plugin_type_matches<MeshRefinementType>(*(*p)))
+          return true;
+
+      return false;
+    }
+
+
+
+    template <int dim>
+    template <typename MeshRefinementType>
+    inline
+    const MeshRefinementType &
+    Manager<dim>::get_matching_mesh_refinement_strategy () const
+    {
+      AssertThrow(has_matching_mesh_refinement_strategy<MeshRefinementType> (),
+                  ExcMessage("You asked MeshRefinement::Manager::get_matching_mesh_refinement_strategy() for a "
+                             "mesh refinement strategy of type <" + boost::core::demangle(typeid(MeshRefinementType).name()) + "> "
+                             "that could not be found in the current model. Activate this "
+                             "mesh refinement strategy in the input file."));
+
+      for (typename std::list<std::unique_ptr<Interface<dim> > >::const_iterator
+           p = mesh_refinement_objects.begin();
+           p != mesh_refinement_objects.end(); ++p)
+        if (Plugins::plugin_type_matches<MeshRefinementType>(*(*p)))
+          return Plugins::get_plugin_as_type<MeshRefinementType>(*(*p));
+
+      // We will never get here, because we had the Assert above. Just to avoid warnings.
+      typename std::list<std::unique_ptr<Interface<dim> > >::const_iterator mesh_refinement_strategy;
+      return Plugins::get_plugin_as_type<MeshRefinementType>(*(*mesh_refinement_strategy));
+    }
 
 
 

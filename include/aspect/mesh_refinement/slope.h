@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -32,7 +32,7 @@ namespace aspect
 
     /**
      * A class that implements a mesh refinement criterion that refines the
-     * mesh on a free surface.  Specifically, it calculates the slope of the
+     * mesh with a deforming surface.  Specifically, it calculates the slope of the
      * surface by comparing the local normal and gravity vectors.
      * Cells with steeper slopes get refined. This is useful for cases where
      * there is steep topography which needs to be tracked better.
@@ -53,9 +53,8 @@ namespace aspect
          * provides an error indicator. This vector will already have the
          * correct size when the function is called.
          */
-        virtual
         void
-        execute (Vector<float> &error_indicators) const;
+        execute (Vector<float> &error_indicators) const override;
     };
   }
 }

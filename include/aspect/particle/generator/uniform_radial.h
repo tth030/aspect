@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2015 - 2017 by the authors of the ASPECT code.
+ Copyright (C) 2015 - 2019 by the authors of the ASPECT code.
 
  This file is part of ASPECT.
 
@@ -23,7 +23,7 @@
 
 #include <aspect/particle/generator/interface.h>
 
-#include <deal.II/base/std_cxx11/array.h>
+#include <array>
 
 namespace aspect
 {
@@ -58,9 +58,8 @@ namespace aspect
            * @param [in,out] particles A multimap between cells and their
            * particles. This map will be filled in this function.
            */
-          virtual
           void
-          generate_particles(std::multimap<types::LevelInd, Particle<dim> > &particles);
+          generate_particles(std::multimap<Particles::internal::LevelInd, Particle<dim> > &particles) override;
 
           /**
            * Declare the parameters this class takes through input files.
@@ -72,9 +71,8 @@ namespace aspect
           /**
            * Read the parameters this class declares from the parameter file.
            */
-          virtual
           void
-          parse_parameters (ParameterHandler &prm);
+          parse_parameters (ParameterHandler &prm) override;
 
         private:
 
@@ -83,14 +81,14 @@ namespace aspect
            * the first radius, colatitude and longitude from the given
            * center position P_center where particles are generated.
            */
-          std_cxx11::array<double,dim> P_min;
+          std::array<double,dim> P_min;
 
           /**
            * The maximum spherical coordinates of the particle region, i.e.
            * the last radius, colatitude and longitude from the given
            * center position P_center where particles are generated.
            */
-          std_cxx11::array<double,dim> P_max;
+          std::array<double,dim> P_max;
 
           /**
            * The center of the particle region. Defaults to the origin.

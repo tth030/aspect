@@ -1,3 +1,22 @@
+/*
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
+
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
 #include <aspect/simulator.h>
 #include <aspect/material_model/simple.h>
 #include <aspect/boundary_velocity/interface.h>
@@ -42,7 +61,7 @@ namespace aspect
                               const double mmm)
       {
 
-        const std_cxx11::array<double,3> spos =
+        const std::array<double,3> spos =
           aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(pos);
 
         const double r=spos[0];
@@ -84,7 +103,7 @@ namespace aspect
       hollow_sphere_pressure (const Point<3> &pos,
                               const double mmm)
       {
-        const std_cxx11::array<double,3> spos =
+        const std::array<double,3> spos =
           aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(pos);
 
         const double r=spos[0];
@@ -265,17 +284,15 @@ namespace aspect
         virtual void evaluate(const MaterialModel::MaterialModelInputs<dim> &in,
                               MaterialModel::MaterialModelOutputs<dim> &out) const
         {
-          for (unsigned int i=0; i < in.position.size(); ++i)
+          for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
             {
               const Point<dim> &pos = in.position[i];
-              const std_cxx11::array<double,dim> spos = aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(pos);
+              const std::array<double,dim> spos = aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(pos);
               const double r = spos[0];
               const double mu = pow(r,mmm+1);
               out.viscosities[i] = mu;
 
               const double theta=spos[2];
-
-              Tensor<1,dim> g;
 
               const double gammma = 1.0;
               const double R1 = 0.5;
@@ -482,13 +499,13 @@ namespace aspect
     std::pair<std::string,std::string>
     HollowSpherePostprocessor<dim>::execute (TableHandler &)
     {
-      std_cxx1x::shared_ptr<Function<dim> > ref_func;
+      std::unique_ptr<Function<dim> > ref_func;
       {
-        const HollowSphereMaterial<dim> *
+        const HollowSphereMaterial<dim> &
         material_model
-          = dynamic_cast<const HollowSphereMaterial<dim> *>(&this->get_material_model());
+          = Plugins::get_plugin_as_type<const HollowSphereMaterial<dim>>(this->get_material_model());
 
-        ref_func.reset (new AnalyticSolutions::FunctionHollowSphere<dim>(material_model->get_mmm()));
+        ref_func.reset (new AnalyticSolutions::FunctionHollowSphere<dim>(material_model.get_mmm()));
       }
 
       const QGauss<dim> quadrature_formula (this->introspection().polynomial_degree.velocities+2);
@@ -531,10 +548,10 @@ namespace aspect
                                          VectorTools::L2_norm,
                                          &comp_p);
 
-      const double u_l1 =  Utilities::MPI::sum(cellwise_errors_u.l1_norm(),this->get_mpi_communicator());
-      const double p_l1 =  Utilities::MPI::sum(cellwise_errors_p.l1_norm(),this->get_mpi_communicator());
-      const double u_l2 =  std::sqrt(Utilities::MPI::sum(cellwise_errors_ul2.norm_sqr(),this->get_mpi_communicator()));
-      const double p_l2 =  std::sqrt(Utilities::MPI::sum(cellwise_errors_pl2.norm_sqr(),this->get_mpi_communicator()));
+      const double u_l1 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_u, VectorTools::L1_norm);
+      const double p_l1 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_p, VectorTools::L1_norm);
+      const double u_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_ul2, VectorTools::L2_norm);
+      const double p_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_pl2, VectorTools::L2_norm);
       const double topo_l2 = compute_dynamic_topography_error();
 
       std::ostringstream os;
@@ -578,7 +595,7 @@ namespace aspect
                                        this->get_fe(),
                                        quadrature_formula,
                                        update_values | update_gradients |
-                                       update_q_points | update_JxW_values);
+                                       update_quadrature_points | update_JxW_values);
       LinearAlgebra::BlockVector topo_vector = dynamic_topography.topography_vector();
       std::vector<double> topo_values(quadrature_formula.size());
 
@@ -646,4 +663,3 @@ namespace aspect
                                   "and reports the error. See the manual for more information.")
   }
 }
-

@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2012 - 2017 by the authors of the ASPECT code.
+ Copyright (C) 2012 - 2019 by the authors of the ASPECT code.
 
  This file is part of ASPECT.
 
@@ -22,17 +22,17 @@
 #define _aspect_particle_world_h
 
 #include <aspect/global.h>
-#include <aspect/particle/particle.h>
-#include <aspect/particle/particle_accessor.h>
-#include <aspect/particle/particle_iterator.h>
-#include <aspect/particle/particle_handler.h>
+
+#include <deal.II/particles/particle.h>
+#include <deal.II/particles/particle_accessor.h>
+#include <deal.II/particles/particle_iterator.h>
+#include <deal.II/particles/particle_handler.h>
+#include <deal.II/particles/property_pool.h>
 
 #include <aspect/particle/generator/interface.h>
 #include <aspect/particle/integrator/interface.h>
 #include <aspect/particle/interpolator/interface.h>
 #include <aspect/particle/property/interface.h>
-#include <aspect/particle/property_pool.h>
-#include <aspect/particle/output/interface.h>
 
 #include <aspect/simulator_access.h>
 #include <aspect/simulator_signals.h>
@@ -44,9 +44,26 @@
 
 namespace aspect
 {
+  template<int dim>
+  struct SimulatorSignals;
+
   namespace Particle
   {
     using namespace dealii;
+    using namespace dealii::Particles;
+
+    namespace Generator
+    {
+      template <int dim>
+      class Interface;
+    }
+
+
+    namespace Property
+    {
+      template <int dim>
+      class Manager;
+    }
 
     /**
      * This class manages the storage and handling of particles. It provides
@@ -71,7 +88,7 @@ namespace aspect
         /**
          * Default World destructor.
          */
-        ~World();
+        ~World() override;
 
         /**
          * Initialize the particle world.
@@ -91,8 +108,29 @@ namespace aspect
          *
          * @return The particle handler for this world.
          */
-        const ParticleHandler<dim> &
+        const Particles::ParticleHandler<dim> &
         get_particle_handler() const;
+
+        /**
+         * Copy the state of particle handler @p from_particle_handler into the
+         * particle handler @p to_particle_handler. This will copy
+         * all particles and properties and leave @p to_particle_handler
+         * as an identical copy of @p from_particle_handler, assuming it
+         * was set up by this particle world class. This means we assume
+         * @p from_particle_handler uses the same triangulation and
+         * particle properties as are used in this model. Existing
+         * particles in @p to_particle_handler are deleted.
+         *
+         * This function is expensive as it has to duplicate all data
+         * in @p from_particle_handler, and insert it into @p to_particle_handler,
+         * which may be a significant amount of data. However, it can
+         * be useful to save the state of a particle
+         * collection at a certain point in time and reset this
+         * state later under certain conditions, for example if
+         * a timestep has to be undone and repeated.
+         */
+        void copy_particle_handler (const Particles::ParticleHandler<dim> &from_particle_handler,
+                                    Particles::ParticleHandler<dim> &to_particle_handler) const;
 
         /**
          * Do initial logic for handling pre-refinement steps
@@ -128,7 +166,7 @@ namespace aspect
         /**
          * Return the total number of particles in the simulation. This
          * function is useful for monitoring how many particles have been
-         * lost by falling out of the domain. Not that this function does
+         * lost by falling out of the domain. Note that this function does
          * not compute the number of particles, because that is an expensive
          * global MPI operation. Instead it returns the number, which is
          * updated internally every time it might change by a call to
@@ -164,12 +202,6 @@ namespace aspect
          * Update the particle properties if necessary.
          */
         void update_particles();
-
-        /**
-         * Generate the selected particle output.
-         */
-        std::string
-        generate_output() const;
 
         /**
          * Serialize the contents of this class.
@@ -221,35 +253,30 @@ namespace aspect
         /**
          * Generation scheme for creating particles in this world
          */
-        std_cxx11::unique_ptr<Generator::Interface<dim> > generator;
+        std::unique_ptr<Generator::Interface<dim> > generator;
 
         /**
          * Integration scheme for moving particles in this world
          */
-        std_cxx11::unique_ptr<Integrator::Interface<dim> > integrator;
+        std::unique_ptr<Integrator::Interface<dim> > integrator;
 
         /**
-         * Integration scheme for moving particles in this world
+         * Interpolation scheme for moving particles in this world
          */
-        std_cxx11::unique_ptr<Interpolator::Interface<dim> > interpolator;
+        std::unique_ptr<Interpolator::Interface<dim> > interpolator;
 
         /**
          * The property manager stores information about the additional
          * particle properties and handles the initialization and update of
          * these properties.
          */
-        std_cxx11::unique_ptr<Property::Manager<dim> > property_manager;
-
-        /**
-         * Pointer to an output object
-         */
-        std_cxx11::unique_ptr<Output::Interface<dim> > output;
+        std::unique_ptr<Property::Manager<dim> > property_manager;
 
         /**
          * Particle handler object that is responsible for storing and
          * managing the internal particle structures.
          */
-        std_cxx11::unique_ptr<ParticleHandler<dim> > particle_handler;
+        std::unique_ptr<Particles::ParticleHandler<dim> > particle_handler;
 
         /**
          * Strategy for particle load balancing.
@@ -362,6 +389,14 @@ namespace aspect
         local_advect_particles(const typename DoFHandler<dim>::active_cell_iterator &cell,
                                const typename ParticleHandler<dim>::particle_iterator &begin_particle,
                                const typename ParticleHandler<dim>::particle_iterator &end_particle);
+
+        /**
+         * This function registers the necessary functions to the
+         * @p signals that the @p particle_handler needs to know about.
+         */
+        void
+        connect_particle_handler_signals(aspect::SimulatorSignals<dim> &signals,
+                                         ParticleHandler<dim> &particle_handler) const;
     };
 
     /* -------------------------- inline and template functions ---------------------- */

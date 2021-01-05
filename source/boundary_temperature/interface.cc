@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -27,7 +27,7 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/signaling_nan.h>
-#include <deal.II/base/std_cxx11/tuple.h>
+#include <tuple>
 
 #include <list>
 
@@ -96,14 +96,13 @@ namespace aspect
         {
           boundary_temperature_objects[i]->update();
         }
-      return;
     }
 
 
 
     namespace
     {
-      std_cxx11::tuple
+      std::tuple
       <void *,
       void *,
       aspect::internal::Plugins::PluginList<Interface<2> >,
@@ -118,10 +117,10 @@ namespace aspect
                                                  void (*declare_parameters_function) (ParameterHandler &),
                                                  Interface<dim> *(*factory_function) ())
     {
-      std_cxx11::get<dim>(registered_plugins).register_plugin (name,
-                                                               description,
-                                                               declare_parameters_function,
-                                                               factory_function);
+      std::get<dim>(registered_plugins).register_plugin (name,
+                                                         description,
+                                                         declare_parameters_function,
+                                                         factory_function);
     }
 
 
@@ -183,17 +182,19 @@ namespace aspect
                                             "the conversion function complained as follows: "
                                             + error));
           }
+
+        allow_fixed_temperature_on_outflow_boundaries = prm.get_bool ("Allow fixed temperature on outflow boundaries");
       }
       prm.leave_subsection ();
 
       // go through the list, create objects and let them parse
       // their own parameters
-      for (unsigned int i=0; i<model_names.size(); ++i)
+      for (auto &model_name : model_names)
         {
           // create boundary temperature objects
-          boundary_temperature_objects.push_back (std_cxx11::shared_ptr<Interface<dim> >
-                                                  (std_cxx11::get<dim>(registered_plugins)
-                                                   .create_plugin (model_names[i],
+          boundary_temperature_objects.push_back (std::unique_ptr<Interface<dim> >
+                                                  (std::get<dim>(registered_plugins)
+                                                   .create_plugin (model_name,
                                                                    "Boundary temperature::Model names")));
 
           if (SimulatorAccess<dim> *sim = dynamic_cast<SimulatorAccess<dim>*>(boundary_temperature_objects.back().get()))
@@ -262,7 +263,7 @@ namespace aspect
 
 
     template <int dim>
-    const std::vector<std_cxx11::shared_ptr<Interface<dim> > > &
+    const std::vector<std::unique_ptr<Interface<dim> > > &
     Manager<dim>::get_active_boundary_temperature_conditions () const
     {
       return boundary_temperature_objects;
@@ -278,6 +279,16 @@ namespace aspect
     }
 
 
+
+    template <int dim>
+    bool
+    Manager<dim>::allows_fixed_temperature_on_outflow_boundaries() const
+    {
+      return allow_fixed_temperature_on_outflow_boundaries;
+    }
+
+
+
     template <int dim>
     void
     Manager<dim>::declare_parameters (ParameterHandler &prm)
@@ -286,7 +297,7 @@ namespace aspect
       prm.enter_subsection ("Boundary temperature model");
       {
         const std::string pattern_of_names
-          = std_cxx11::get<dim>(registered_plugins).get_pattern_of_names ();
+          = std::get<dim>(registered_plugins).get_pattern_of_names ();
 
         prm.declare_entry("List of model names",
                           "",
@@ -298,10 +309,10 @@ namespace aspect
                           "in 'List of model operators'.\n\n"
                           "The following boundary temperature models are available:\n\n"
                           +
-                          std_cxx11::get<dim>(registered_plugins).get_description_string());
+                          std::get<dim>(registered_plugins).get_description_string());
 
         prm.declare_entry("List of model operators", "add",
-                          Patterns::MultipleSelection("add|subtract|minimum|maximum"),
+                          Patterns::MultipleSelection(Utilities::get_model_operator_options()),
                           "A comma-separated list of operators that "
                           "will be used to append the listed temperature models onto "
                           "the previous models. If only one operator is given, "
@@ -311,7 +322,7 @@ namespace aspect
                            Patterns::Selection (pattern_of_names+"|unspecified"),
                            "Select one of the following models:\n\n"
                            +
-                           std_cxx11::get<dim>(registered_plugins).get_description_string()
+                           std::get<dim>(registered_plugins).get_description_string()
                            + "\n\n" +
                            "\\textbf{Warning}: This parameter provides an old and "
                            "deprecated way of specifying "
@@ -322,10 +333,12 @@ namespace aspect
                            Patterns::List (Patterns::Anything()),
                            "A comma separated list of names denoting those boundaries "
                            "on which the temperature is fixed and described by the "
-                           "boundary temperature object selected in its own section "
-                           "of this input file. All boundary indicators used by the geometry "
+                           "boundary temperature object selected in the 'List of model names' "
+                           "parameter. All boundary indicators used by the geometry "
                            "but not explicitly listed here will end up with no-flux "
-                           "(insulating) boundary conditions."
+                           "(insulating) boundary conditions, or, if they are listed in the "
+                           "'Fixed heat flux boundary indicators', with Neumann boundary "
+                           "conditions."
                            "\n\n"
                            "The names of the boundaries listed here can either be "
                            "numbers (in which case they correspond to the numerical "
@@ -341,10 +354,37 @@ namespace aspect
                            "implemented in a plugin in the BoundaryTemperature "
                            "group, unless an existing implementation in this group "
                            "already provides what you want.");
+        prm.declare_entry ("Allow fixed temperature on outflow boundaries", "true",
+                           Patterns::Bool (),
+                           "When the temperature is fixed on a given boundary as determined "
+                           "by the list of 'Fixed temperature boundary indicators', there "
+                           "might be parts of the boundary where material flows out and "
+                           "one may want to prescribe the temperature only on the parts of "
+                           "the boundary where there is inflow. This parameter determines "
+                           "if temperatures are only prescribed at these inflow parts of the "
+                           "boundary (if false) or everywhere on a given boundary, independent "
+                           "of the flow direction (if true)."
+                           "Note that in this context, `fixed' refers to the fact that these "
+                           "are the boundary indicators where Dirichlet boundary conditions are "
+                           "applied, and does not imply that the boundary temperature is "
+                           "time-independent. "
+                           "\n\n"
+                           "Mathematically speaking, the temperature satisfies an "
+                           "advection-diffusion equation. For this type of equation, one can "
+                           "prescribe the temperature even on outflow boundaries as long as the "
+                           "diffusion coefficient is nonzero. This would correspond to the "
+                           "``true'' setting of this parameter, which is correspondingly the "
+                           "default. In practice, however, this would only make physical sense "
+                           "if the diffusion coefficient is actually quite large to prevent "
+                           "the creation of a boundary layer. "
+                           "In addition, if there is no diffusion, one can only impose "
+                           "Dirichlet boundary conditions (i.e., prescribe a fixed temperature "
+                           "value at the boundary) at those boundaries where material flows in. "
+                           "This would correspond to the ``false'' setting of this parameter.");
       }
       prm.leave_subsection ();
 
-      std_cxx11::get<dim>(registered_plugins).declare_parameters (prm);
+      std::get<dim>(registered_plugins).declare_parameters (prm);
     }
 
 
@@ -353,8 +393,8 @@ namespace aspect
     void
     Manager<dim>::write_plugin_graph (std::ostream &out)
     {
-      std_cxx11::get<dim>(registered_plugins).write_plugin_graph ("Boundary temperature interface",
-                                                                  out);
+      std::get<dim>(registered_plugins).write_plugin_graph ("Boundary temperature interface",
+                                                            out);
     }
   }
 }
@@ -368,10 +408,10 @@ namespace aspect
     {
       template <>
       std::list<internal::Plugins::PluginList<BoundaryTemperature::Interface<2> >::PluginInfo> *
-      internal::Plugins::PluginList<BoundaryTemperature::Interface<2> >::plugins = 0;
+      internal::Plugins::PluginList<BoundaryTemperature::Interface<2> >::plugins = nullptr;
       template <>
       std::list<internal::Plugins::PluginList<BoundaryTemperature::Interface<3> >::PluginInfo> *
-      internal::Plugins::PluginList<BoundaryTemperature::Interface<3> >::plugins = 0;
+      internal::Plugins::PluginList<BoundaryTemperature::Interface<3> >::plugins = nullptr;
     }
   }
 
@@ -382,5 +422,7 @@ namespace aspect
   template class Manager<dim>;
 
     ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
   }
 }

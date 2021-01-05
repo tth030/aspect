@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -24,9 +24,8 @@
 
 #include <aspect/boundary_velocity/interface.h>
 #include <aspect/simulator_access.h>
-#include <aspect/compat.h>
 
-#include <deal.II/base/std_cxx11/array.h>
+#include <array>
 #include <deal.II/base/function_lib.h>
 
 
@@ -51,8 +50,8 @@ namespace aspect
            * Initialize all members and calculates any necessary rotation
            * parameters for a 2D model.
            */
-          GPlatesLookup(const Tensor<1,2> &pointone,
-                        const Tensor<1,2> &pointtwo);
+          GPlatesLookup(const Tensor<1,2> &surface_point_one,
+                        const Tensor<1,2> &surface_point_two);
 
           /**
            * Outputs the GPlates module information at model start.
@@ -81,7 +80,7 @@ namespace aspect
           /**
            * Interpolation functions to access the velocities.
            */
-          std_cxx11::array<std_cxx11::unique_ptr<typename Functions::InterpolatedUniformGridData<2> >, 2> velocities;
+          std::array<std::unique_ptr<Functions::InterpolatedUniformGridData<2>>, 2> velocities;
 
           /**
            * Distances between adjacent point in the Lat/Long grid
@@ -103,7 +102,7 @@ namespace aspect
            * coordinate axes in the order y-x-z (instead of the often used
            * z-x-z)
            */
-          std_cxx11::array<double,3>
+          std::array<double,3>
           angles_from_matrix (const Tensor<2,3> &rotation_matrix) const;
 
           /**
@@ -143,7 +142,7 @@ namespace aspect
            * position and converts them to cartesian velocities.
            */
           Tensor<1,dim>
-          cartesian_velocity_at_surface_point(const std_cxx11::array<double,3> &spherical_point) const;
+          cartesian_velocity_at_surface_point(const std::array<double,3> &spherical_point) const;
 
           /**
            * Returns cartesian velocities calculated from surface velocities
@@ -155,7 +154,7 @@ namespace aspect
            * (radius,phi,theta)
            */
           Tensor<1,3> sphere_to_cart_velocity(const Tensor<1,2> &s_velocities,
-                                              const std_cxx11::array<double,3> &s_position) const;
+                                              const std::array<double,3> &s_position) const;
 
           /**
            * Check whether the gpml file was created by GPlates1.4 or later.
@@ -189,7 +188,7 @@ namespace aspect
          */
         Tensor<1,dim>
         boundary_velocity (const types::boundary_id boundary_indicator,
-                           const Point<dim> &position) const;
+                           const Point<dim> &position) const override;
 
         // avoid -Woverloaded-virtual warning until the deprecated function
         // is removed from the interface:
@@ -199,9 +198,8 @@ namespace aspect
          * Initialization function. This function is called once at the
          * beginning of the program. Checks preconditions.
          */
-        virtual
         void
-        initialize ();
+        initialize () override;
 
         /**
          * A function that is called at the beginning of each time step. For
@@ -209,9 +207,8 @@ namespace aspect
          * necessary and outputs a warning if the end of the set of velocity
          * files is reached.
          */
-        virtual
         void
-        update ();
+        update () override;
 
         /**
          * Declare the parameters this class takes through input files.
@@ -224,7 +221,7 @@ namespace aspect
          * Read the parameters this class declares from the parameter file.
          */
         void
-        parse_parameters (ParameterHandler &prm);
+        parse_parameters (ParameterHandler &prm) override;
 
       private:
         /**
@@ -321,13 +318,13 @@ namespace aspect
          * Pointer to an object that reads and processes data we get from
          * gplates files.
          */
-        std_cxx11::shared_ptr<internal::GPlatesLookup<dim> > lookup;
+        std::unique_ptr<internal::GPlatesLookup<dim> > lookup;
 
         /**
          * Pointer to an object that reads and processes data we get from
          * gplates files. This saves the previous data time step.
          */
-        std_cxx11::shared_ptr<internal::GPlatesLookup<dim> > old_lookup;
+        std::unique_ptr<internal::GPlatesLookup<dim> > old_lookup;
 
         /**
          * Handles the update of the velocity data in lookup. The input
@@ -336,7 +333,7 @@ namespace aspect
          * time step.
          */
         void
-        update_data (const bool reload_both_files);
+        update_data (const bool load_both_files);
 
         /**
          * Handles settings and user notification in case the time-dependent

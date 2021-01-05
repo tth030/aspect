@@ -1,5 +1,5 @@
 # This test checks if the postprocessor 'melt fraction' works as 
-# intended. The visualization output is then a p-T-diagramme of
+# intended. The visualization output is then a p-T-diagram of
 # the melt fraction (which, in this case, is a simple linear relation)
 # with the temperature ranging from 1000°C to 1900°C on the x axis 
 # and the pressure ranging from 0 GPa to 8 GPa on the y axis. 
@@ -129,6 +129,7 @@ subsection Postprocess
   set List of postprocessors = visualization
 
   subsection Visualization
+    set Interpolate output = false
     set Output format = gnuplot
     set Time between graphical output = 0.01
     set List of output variables = melt fraction

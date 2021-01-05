@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -26,12 +26,17 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/signaling_nan.h>
-#include <deal.II/base/std_cxx11/tuple.h>
+#include <tuple>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/fe_q.h>
 
 #include <list>
 
+#ifdef DEBUG
+#ifdef ASPECT_USE_FP_EXCEPTIONS
+#include <fenv.h>
+#endif
+#endif
 
 namespace aspect
 {
@@ -106,7 +111,7 @@ namespace aspect
 
     namespace
     {
-      std_cxx11::tuple
+      std::tuple
       <void *,
       void *,
       aspect::internal::Plugins::PluginList<Interface<2> >,
@@ -122,10 +127,10 @@ namespace aspect
                              void (*declare_parameters_function) (ParameterHandler &),
                              Interface<dim> *(*factory_function) ())
     {
-      std_cxx11::get<dim>(registered_plugins).register_plugin (name,
-                                                               description,
-                                                               declare_parameters_function,
-                                                               factory_function);
+      std::get<dim>(registered_plugins).register_plugin (name,
+                                                         description,
+                                                         declare_parameters_function,
+                                                         factory_function);
     }
 
 
@@ -133,8 +138,8 @@ namespace aspect
     Interface<dim> *
     create_material_model (const std::string &model_name)
     {
-      Interface<dim> *plugin = std_cxx11::get<dim>(registered_plugins).create_plugin (model_name,
-                                                                                      "Material model::Model name");
+      Interface<dim> *plugin = std::get<dim>(registered_plugins).create_plugin (model_name,
+                                                                                "Material model::Model name");
       return plugin;
     }
 
@@ -187,10 +192,25 @@ namespace aspect
 
 
     template <int dim>
+    void
+    Interface<dim>::
+    fill_additional_material_model_inputs(MaterialModel::MaterialModelInputs<dim> &input,
+                                          const LinearAlgebra::BlockVector        &solution,
+                                          const FEValuesBase<dim>                 &fe_values,
+                                          const Introspection<dim>                &introspection) const
+    {
+      // go through the list of additional inputs and fill them
+      for (unsigned int i=0; i<input.additional_inputs.size(); ++i)
+        input.additional_inputs[i]->fill(solution, fe_values, introspection);
+    }
+
+
+
+    template <int dim>
     std::string
     get_valid_model_names_pattern ()
     {
-      return std_cxx11::get<dim>(registered_plugins).get_pattern_of_names ();
+      return std::get<dim>(registered_plugins).get_pattern_of_names ();
     }
 
 
@@ -218,11 +238,11 @@ namespace aspect
                            "\n\n"
                            "You can select one of the following models:\n\n"
                            +
-                           std_cxx11::get<dim>(registered_plugins).get_description_string());
+                           std::get<dim>(registered_plugins).get_description_string());
       }
       prm.leave_subsection ();
 
-      std_cxx11::get<dim>(registered_plugins).declare_parameters (prm);
+      std::get<dim>(registered_plugins).declare_parameters (prm);
     }
 
 
@@ -231,14 +251,11 @@ namespace aspect
     void
     write_plugin_graph (std::ostream &out)
     {
-      std_cxx11::get<dim>(registered_plugins).write_plugin_graph ("Material model interface",
-                                                                  out);
+      std::get<dim>(registered_plugins).write_plugin_graph ("Material model interface",
+                                                            out);
     }
 
 
-    // We still use the cell reference in the different constructors, although it is deprecated.
-    // Make sure we don't get any compiler warnings.
-    DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
     template <int dim>
     MaterialModelInputs<dim>::MaterialModelInputs(const unsigned int n_points,
                                                   const unsigned int n_comp)
@@ -250,8 +267,8 @@ namespace aspect
       velocity(n_points, numbers::signaling_nan<Tensor<1,dim> >()),
       composition(n_points, std::vector<double>(n_comp, numbers::signaling_nan<double>())),
       strain_rate(n_points, numbers::signaling_nan<SymmetricTensor<2,dim> >()),
-      cell (NULL),
-      current_cell()
+      current_cell(),
+      requested_properties(MaterialProperties::all_properties)
     {}
 
     template <int dim>
@@ -266,8 +283,12 @@ namespace aspect
       velocity(input_data.solution_values.size(), numbers::signaling_nan<Tensor<1,dim> >()),
       composition(input_data.solution_values.size(), std::vector<double>(introspection.n_compositional_fields, numbers::signaling_nan<double>())),
       strain_rate(input_data.solution_values.size(), numbers::signaling_nan<SymmetricTensor<2,dim> >()),
-      cell(&current_cell),
-      current_cell(input_data.template get_cell<DoFHandler<dim> >())
+#if DEAL_II_VERSION_GTE(9,3,0)
+      current_cell(input_data.template get_cell<dim>()),
+#else
+      current_cell(input_data.template get_cell<DoFHandler<dim> >()),
+#endif
+      requested_properties(MaterialProperties::all_properties)
     {
       for (unsigned int q=0; q<input_data.solution_values.size(); ++q)
         {
@@ -306,31 +327,33 @@ namespace aspect
       velocity(fe_values.n_quadrature_points, numbers::signaling_nan<Tensor<1,dim> >()),
       composition(fe_values.n_quadrature_points, std::vector<double>(introspection.n_compositional_fields, numbers::signaling_nan<double>())),
       strain_rate(fe_values.n_quadrature_points, numbers::signaling_nan<SymmetricTensor<2,dim> >()),
-      cell(cell_x.state() == IteratorState::valid ? &current_cell : NULL),
-#if DEAL_II_VERSION_GTE(9,0,0)
-      current_cell (cell_x)
-#else
-      current_cell(cell_x.state() == IteratorState::valid ? cell_x : typename DoFHandler<dim>::active_cell_iterator())
-#endif
+      current_cell (cell_x),
+      requested_properties(MaterialProperties::all_properties)
     {
       // Call the function reinit to populate the new arrays.
       this->reinit(fe_values, current_cell, introspection, solution_vector, use_strain_rate);
     }
 
+
+
     template <int dim>
-    MaterialModelInputs<dim>::MaterialModelInputs(const MaterialModelInputs &material)
+    MaterialModelInputs<dim>::MaterialModelInputs(const MaterialModelInputs &source)
       :
-      position(material.position),
-      temperature(material.temperature),
-      pressure(material.pressure),
-      pressure_gradient(material.pressure_gradient),
-      velocity(material.velocity),
-      composition(material.composition),
-      strain_rate(material.strain_rate),
-      cell(material.cell),
-      current_cell(material.current_cell)
-    {}
-    DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
+      position(source.position),
+      temperature(source.temperature),
+      pressure(source.pressure),
+      pressure_gradient(source.pressure_gradient),
+      velocity(source.velocity),
+      composition(source.composition),
+      strain_rate(source.strain_rate),
+      current_cell(source.current_cell),
+      requested_properties(source.requested_properties)
+    {
+      Assert (source.additional_inputs.size() == 0,
+              ExcMessage ("You can not copy MaterialModelInputs objects that have "
+                          "additional input objects attached"));
+    }
+
 
 
     template <int dim>
@@ -365,17 +388,38 @@ namespace aspect
             this->composition[i][c] = composition_values[c][i];
         }
 
-      DEAL_II_DISABLE_EXTRA_DIAGNOSTICS
-      this->cell = cell_x.state() == IteratorState::valid ? &cell_x : NULL;
-      DEAL_II_ENABLE_EXTRA_DIAGNOSTICS
-
-#if DEAL_II_VERSION_GTE(9,0,0)
       this->current_cell = cell_x;
-#else
-      this->current_cell = (cell_x.state() == IteratorState::valid ? cell_x : typename DoFHandler<dim>::active_cell_iterator());
-#endif
-
     }
+
+
+
+    template <int dim>
+    unsigned int
+    MaterialModelInputs<dim>::n_evaluation_points() const
+    {
+      return position.size();
+    }
+
+
+
+    template <int dim>
+    bool
+    MaterialModelInputs<dim>::requests_property(const MaterialProperties::Property &property) const
+    {
+      //TODO: Remove this once all callers set requested_properties correctly
+      if ((property & MaterialProperties::Property::viscosity) != 0)
+        return (strain_rate.size() != 0);
+
+      //TODO: Remove this once all callers set requested_properties correctly
+      if ((property & MaterialProperties::Property::reaction_terms) != 0)
+        return (strain_rate.size() != 0);
+
+      // Note that this means 'requested_properties' can include other properties than
+      // just 'property', but in any case it at least requests 'property'.
+      return (requested_properties & property) != 0;
+    }
+
+
 
     template <int dim>
     MaterialModelOutputs<dim>::MaterialModelOutputs(const unsigned int n_points,
@@ -393,11 +437,41 @@ namespace aspect
     {}
 
 
+    template <int dim>
+    MaterialModelOutputs<dim>::MaterialModelOutputs(const MaterialModelOutputs<dim> &source)
+      :
+      viscosities(source.viscosities),
+      densities(source.densities),
+      thermal_expansion_coefficients(source.thermal_expansion_coefficients),
+      specific_heat(source.specific_heat),
+      thermal_conductivities(source.thermal_conductivities),
+      compressibilities(source.compressibilities),
+      entropy_derivative_pressure(source.entropy_derivative_pressure),
+      entropy_derivative_temperature(source.entropy_derivative_temperature),
+      reaction_terms(source.reaction_terms),
+      additional_outputs()
+    {
+      Assert (source.additional_outputs.size() == 0,
+              ExcMessage ("You can not copy MaterialModelOutputs objects that have "
+                          "additional output objects attached"));
+    }
+
+
+
+    template <int dim>
+    unsigned int
+    MaterialModelOutputs<dim>::n_evaluation_points() const
+    {
+      return densities.size();
+    }
+
+
+
     namespace MaterialAveraging
     {
       std::string get_averaging_operation_names ()
       {
-        return "none|arithmetic average|harmonic average|geometric average|pick largest|project to Q1|log average";
+        return "none|arithmetic average|harmonic average|geometric average|pick largest|project to Q1|log average|harmonic average only viscosity|project to Q1 only viscosity";
       }
 
 
@@ -417,6 +491,10 @@ namespace aspect
           return project_to_Q1;
         else if (s == "log average")
           return log_average;
+        else if (s == "harmonic average only viscosity")
+          return harmonic_average_only_viscosity;
+        else if (s == "project to Q1 only viscosity")
+          return project_to_Q1_only_viscosity;
         else
           AssertThrow (false,
                        ExcMessage ("The value <" + s + "> for a material "
@@ -429,7 +507,7 @@ namespace aspect
 
       // Do the requested averaging operation for one array. The
       // projection matrix argument is only used if the operation
-      // chosen is project_to_Q1
+      // chosen is project_to_Q1.
       void average_property (const AveragingOperation  operation,
                              const FullMatrix<double>      &projection_matrix,
                              const FullMatrix<double>      &expansion_matrix,
@@ -439,6 +517,14 @@ namespace aspect
         // not requested), then simply do nothing -- no harm no foul
         if (values_out.size() == 0)
           return;
+
+#ifdef DEBUG
+#ifdef ASPECT_USE_FP_EXCEPTIONS
+        // disable floating point exceptions while averaging. Errors will be reported
+        // as soon as somebody will try to use the averaged values later.
+        fedisableexcept(FE_DIVBYZERO|FE_INVALID);
+#endif
+#endif
 
         const unsigned int N = values_out.size();
         const unsigned int P = expansion_matrix.n();
@@ -587,6 +673,13 @@ namespace aspect
                            ExcMessage ("This averaging operation is not implemented."));
             }
           }
+
+#ifdef DEBUG
+#ifdef ASPECT_USE_FP_EXCEPTIONS
+        // enable floating point exceptions again:
+        feenableexcept(FE_DIVBYZERO|FE_INVALID);
+#endif
+#endif
       }
 
 
@@ -682,7 +775,9 @@ namespace aspect
         FullMatrix<double> projection_matrix;
         FullMatrix<double> expansion_matrix;
 
-        if (operation == project_to_Q1)
+        if (operation == project_to_Q1
+            ||
+            operation == project_to_Q1_only_viscosity)
           {
             projection_matrix.reinit (quadrature_formula.size(),
                                       quadrature_formula.size());
@@ -693,7 +788,22 @@ namespace aspect
                                        expansion_matrix);
           }
 
-        average_property (operation, projection_matrix, expansion_matrix, values_out.viscosities);
+        if (operation == harmonic_average_only_viscosity)
+          {
+            average_property (harmonic_average, projection_matrix, expansion_matrix,
+                              values_out.viscosities);
+            return;
+          }
+
+        if (operation == project_to_Q1_only_viscosity)
+          {
+            average_property (project_to_Q1, projection_matrix, expansion_matrix,
+                              values_out.viscosities);
+            return;
+          }
+
+        average_property (operation, projection_matrix, expansion_matrix,
+                          values_out.viscosities);
         average_property (operation, projection_matrix, expansion_matrix,
                           values_out.densities);
         average_property (operation, projection_matrix, expansion_matrix,
@@ -732,6 +842,17 @@ namespace aspect
 
     template <int dim>
     NamedAdditionalMaterialOutputs<dim>::
+    NamedAdditionalMaterialOutputs(const std::vector<std::string> &output_names,
+                                   const unsigned int n_points)
+      :
+      output_values(output_names.size(), std::vector<double>(n_points, numbers::signaling_nan<double>())),
+      names(output_names)
+    {}
+
+
+
+    template <int dim>
+    NamedAdditionalMaterialOutputs<dim>::
     ~NamedAdditionalMaterialOutputs()
     {}
 
@@ -746,13 +867,46 @@ namespace aspect
 
 
 
+    template<int dim>
+    std::vector<double>
+    NamedAdditionalMaterialOutputs<dim>::get_nth_output(const unsigned int idx) const
+    {
+      // In this function we extract the values for the nth output
+      // The number of outputs is the outer vector
+      Assert (output_values.size() > idx,
+              ExcMessage ("The requested output index is out of range for output_values."));
+      Assert (output_values[idx].size() > 0,
+              ExcMessage ("There must be one or more points for the nth output."));
+      return output_values[idx];
+    }
+
+
+
+    template <int dim>
+    PrescribedPlasticDilation<dim>::PrescribedPlasticDilation (const unsigned int n_points)
+      : NamedAdditionalMaterialOutputs<dim>(std::vector<std::string>(1, "prescribed_dilation")),
+        dilation(n_points, numbers::signaling_nan<double>())
+    {}
+
+
+
+    template <int dim>
+    std::vector<double> PrescribedPlasticDilation<dim>::get_nth_output(const unsigned int idx) const
+    {
+      (void)idx;
+      Assert(idx==0, ExcInternalError());
+      return dilation;
+    }
+
+
+
     namespace
     {
       std::vector<std::string> make_seismic_additional_outputs_names()
       {
         std::vector<std::string> names;
-        names.push_back("seismic_Vs");
-        names.push_back("seismic_Vp");
+        names.emplace_back("seismic_Vs");
+        names.emplace_back("seismic_Vp");
         return names;
       }
     }
@@ -801,6 +955,16 @@ namespace aspect
 
         return names;
       }
+
+
+
+      std::vector<std::string> make_prescribed_field_output_names(const unsigned int n_comp)
+      {
+        std::vector<std::string> names;
+        for (unsigned int c=0; c<n_comp; ++c)
+          names.push_back("prescribed_field_output_C" + Utilities::int_to_string(c));
+        return names;
+      }
     }
 
 
@@ -829,6 +993,52 @@ namespace aspect
 
       return cth_reaction_rates;
     }
+
+
+
+    template<int dim>
+    PrescribedFieldOutputs<dim>::PrescribedFieldOutputs (const unsigned int n_points,
+                                                         const unsigned int n_comp)
+      :
+      NamedAdditionalMaterialOutputs<dim>(make_prescribed_field_output_names(n_comp)),
+      prescribed_field_outputs(n_points, std::vector<double>(n_comp, std::numeric_limits<double>::quiet_NaN()))
+    {}
+
+
+
+    template<int dim>
+    std::vector<double>
+    PrescribedFieldOutputs<dim>::get_nth_output(const unsigned int idx) const
+    {
+      // we have to extract the prescribed field outputs for one particular compositional
+      // field, but the vector in the material model outputs is sorted so that the
+      // number of evaluation points (and not the compositional fields) is the outer
+      // vector
+      std::vector<double> nth_prescribed_field_output(prescribed_field_outputs.size());
+      for (unsigned int q=0; q<prescribed_field_outputs.size(); ++q)
+        nth_prescribed_field_output[q] = prescribed_field_outputs[q][idx];
+      return nth_prescribed_field_output;
+    }
+
+
+
+    template<int dim>
+    PrescribedTemperatureOutputs<dim>::PrescribedTemperatureOutputs (const unsigned int n_points)
+      :
+      NamedAdditionalMaterialOutputs<dim>(std::vector<std::string>(1,"prescribed_temperature")),
+      prescribed_temperature_outputs(n_points, std::numeric_limits<double>::quiet_NaN())
+    {}
+
+
+
+    template<int dim>
+    std::vector<double>
+    PrescribedTemperatureOutputs<dim>::get_nth_output(const unsigned int idx) const
+    {
+      (void)idx;
+      AssertIndexRange (idx, 1);
+      return prescribed_temperature_outputs;
+    }
   }
 }
 
@@ -841,11 +1051,11 @@ namespace aspect
     {
       template <>
       std::list<internal::Plugins::PluginList<MaterialModel::Interface<2> >::PluginInfo> *
-      internal::Plugins::PluginList<MaterialModel::Interface<2> >::plugins = 0;
+      internal::Plugins::PluginList<MaterialModel::Interface<2> >::plugins = nullptr;
 
       template <>
       std::list<internal::Plugins::PluginList<MaterialModel::Interface<3> >::PluginInfo> *
-      internal::Plugins::PluginList<MaterialModel::Interface<3> >::plugins = 0;
+      internal::Plugins::PluginList<MaterialModel::Interface<3> >::plugins = nullptr;
     }
   }
 
@@ -893,6 +1103,12 @@ namespace aspect
   \
   template class ReactionRateOutputs<dim>; \
   \
+  template class PrescribedPlasticDilation<dim>; \
+  \
+  template class PrescribedFieldOutputs<dim>; \
+  \
+  template class PrescribedTemperatureOutputs<dim>; \
+  \
   namespace MaterialAveraging \
   { \
     template                \
@@ -905,5 +1121,7 @@ namespace aspect
 
 
     ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
   }
 }

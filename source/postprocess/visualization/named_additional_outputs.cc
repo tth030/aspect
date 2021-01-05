@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -49,6 +49,10 @@ namespace aspect
                                                      this->n_compositional_fields());
         this->get_material_model().create_additional_named_outputs(out);
 
+        AssertThrow(out.additional_outputs.size() > 0,
+                    ExcMessage("You activated the postprocessor <named additional outputs>, but there are no additional outputs "
+                               "provided by the material model. Either remove the postprocessor, or check why no output is provided."));
+
         for (unsigned int k=0; k<out.additional_outputs.size(); ++k)
           {
             const MaterialModel::NamedAdditionalMaterialOutputs<dim> *result
@@ -63,9 +67,6 @@ namespace aspect
               }
           }
 
-        AssertThrow(out.additional_outputs.size() > 0,
-                    ExcMessage("You activated the postprocessor <named additional outputs>, but there are no additional outputs "
-                               "provided by the material model. Either remove the postprocessor, or check why no output is provided."));
         AssertThrow(property_names.size() > 0,
                     ExcMessage("You activated the postprocessor <named additional outputs>, but none of the additional outputs "
                                "provided by the material model are named outputs. Either remove the postprocessor, or check why no "
@@ -103,7 +104,7 @@ namespace aspect
       NamedAdditionalOutputs<dim>::
       get_needed_update_flags () const
       {
-        return update_gradients | update_values  | update_q_points;
+        return update_gradients | update_values  | update_quadrature_points;
       }
 
 
@@ -128,6 +129,7 @@ namespace aspect
         this->get_material_model().create_additional_named_outputs(out);
         this->get_material_model().evaluate(in, out);
 
+        unsigned int field_index = 0;
         for (unsigned int k=0; k<out.additional_outputs.size(); ++k)
           {
             const MaterialModel::NamedAdditionalMaterialOutputs<dim> *result
@@ -136,12 +138,12 @@ namespace aspect
             if (result)
               {
                 std::vector<double> outputs(n_quadrature_points);
-                for (unsigned int i=0; i<get_names().size(); ++i)
+                for (unsigned int i=0; i<result->get_names().size(); ++i, ++field_index)
                   {
                     outputs = result->get_nth_output(i);
 
                     for (unsigned int q=0; q<n_quadrature_points; ++q)
-                      computed_quantities[q][i] = outputs[q];
+                      computed_quantities[q][field_index] = outputs[q];
                   }
               }
           }

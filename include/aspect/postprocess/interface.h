@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -26,7 +26,7 @@
 #include <aspect/plugins.h>
 #include <aspect/simulator_access.h>
 
-#include <deal.II/base/std_cxx11/shared_ptr.h>
+#include <memory>
 #include <deal.II/base/table_handler.h>
 #include <deal.II/base/parameter_handler.h>
 
@@ -82,6 +82,12 @@ namespace aspect
          * Initialize function.
          */
         virtual void initialize ();
+
+        /**
+         * Update function. This should be called before each postprocessor
+         * is run and allows an opportunity to prepare/update temporary data
+         */
+        virtual void update ();
 
         /**
          * Execute this postprocessor. Derived classes will implement this
@@ -228,7 +234,7 @@ namespace aspect
          * in the input file (and are consequently currently active) and see
          * if one of them has the desired type specified by the template
          * argument. If so, return a pointer to it. If no postprocessor is
-         * active that matches the given type, return a NULL pointer.
+         * active that matches the given type, return a nullptr.
          *
          * @deprecated Use has_matching_postprocessor() and
          * get_matching_postprocessor() instead.
@@ -345,7 +351,7 @@ namespace aspect
          * A list of postprocessor objects that have been requested in the
          * parameter file.
          */
-        std::vector<std_cxx11::shared_ptr<Interface<dim> > > postprocessors;
+        std::vector<std::unique_ptr<Interface<dim> > > postprocessors;
     };
 
 
@@ -359,10 +365,8 @@ namespace aspect
       // let all the postprocessors save their data in a map and then
       // serialize that
       std::map<std::string,std::string> saved_text;
-      for (typename std::vector<std_cxx11::shared_ptr<Interface<dim> > >::const_iterator
-           p = postprocessors.begin();
-           p != postprocessors.end(); ++p)
-        (*p)->save (saved_text);
+      for (const auto &p : postprocessors)
+        p->save (saved_text);
 
       ar &saved_text;
     }
@@ -380,10 +384,8 @@ namespace aspect
       std::map<std::string,std::string> saved_text;
       ar &saved_text;
 
-      for (typename std::vector<std_cxx11::shared_ptr<Interface<dim> > >::iterator
-           p = postprocessors.begin();
-           p != postprocessors.end(); ++p)
-        (*p)->load (saved_text);
+      for (auto &p : postprocessors)
+        p->load (saved_text);
     }
 
 
@@ -394,12 +396,10 @@ namespace aspect
     PostprocessorType *
     Manager<dim>::find_postprocessor () const
     {
-      for (typename std::vector<std_cxx11::shared_ptr<Interface<dim> > >::const_iterator
-           p = postprocessors.begin();
-           p != postprocessors.end(); ++p)
-        if (PostprocessorType *x = dynamic_cast<PostprocessorType *> ( (*p).get()) )
+      for (auto &p : postprocessors)
+        if (PostprocessorType *x = dynamic_cast<PostprocessorType *> ( p.get()) )
           return x;
-      return NULL;
+      return nullptr;
     }
 
 
@@ -410,10 +410,8 @@ namespace aspect
     bool
     Manager<dim>::has_matching_postprocessor () const
     {
-      for (typename std::vector<std_cxx11::shared_ptr<Interface<dim> > >::const_iterator
-           p = postprocessors.begin();
-           p != postprocessors.end(); ++p)
-        if (Plugins::plugin_type_matches<PostprocessorType>(*(*p)))
+      for (const auto &p : postprocessors)
+        if (Plugins::plugin_type_matches<PostprocessorType>(*p))
           return true;
 
       return false;
@@ -428,17 +426,15 @@ namespace aspect
     Manager<dim>::get_matching_postprocessor () const
     {
       AssertThrow(has_matching_postprocessor<PostprocessorType> (),
-                  ExcMessage("You asked Postprocess:Manager::get_matching_postprocessor() for a "
+                  ExcMessage("You asked Postprocess::Manager::get_matching_postprocessor() for a "
                              "postprocessor of type <" + boost::core::demangle(typeid(PostprocessorType).name()) + "> "
                              "that could not be found in the current model. Activate this "
                              "postprocessor in the input file."));
 
-      typename std::vector<std_cxx11::shared_ptr<Interface<dim> > >::const_iterator postprocessor;
-      for (typename std::vector<std_cxx11::shared_ptr<Interface<dim> > >::const_iterator
-           p = postprocessors.begin();
-           p != postprocessors.end(); ++p)
-        if (Plugins::plugin_type_matches<PostprocessorType>(*(*p)))
-          return Plugins::get_plugin_as_type<PostprocessorType>(*(*p));
+      typename std::vector<std::unique_ptr<Interface<dim> > >::const_iterator postprocessor;
+      for (const auto &p : postprocessors)
+        if (Plugins::plugin_type_matches<PostprocessorType>(*p))
+          return Plugins::get_plugin_as_type<PostprocessorType>(*p);
 
       // We will never get here, because we had the Assert above. Just to avoid warnings.
       return Plugins::get_plugin_as_type<PostprocessorType>(*(*postprocessor));

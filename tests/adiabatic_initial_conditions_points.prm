@@ -1,5 +1,5 @@
 # Here we verify that the adiabatic conditions plugin can use
-# a variabe number of points. We only use 5 points, so that the 
+# a variable number of points. We only use 5 points, so that the 
 # profile should have distinct kinks. 
 
 set Dimension = 2
@@ -111,6 +111,7 @@ subsection Postprocess
   set List of postprocessors = visualization, depth average
 
   subsection Visualization
+    set Interpolate output = false
     set Output format                 = gnuplot
     set List of output variables      = adiabat
   end

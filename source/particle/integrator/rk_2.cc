@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2015 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2015 - 2018 by the authors of the ASPECT code.
 
  This file is part of ASPECT.
 
@@ -154,8 +154,8 @@ namespace aspect
       ASPECT_REGISTER_PARTICLE_INTEGRATOR(RK2,
                                           "rk2",
                                           "Second Order Runge Kutta integrator "
-                                          "$y_{n+1} = y_n + dt*v(t_{n+1/2}, y_{n} + 0.5*k_1)$ "
-                                          "where $k_1 = y_n + 0.5*dt*v(t_{n}, y_{n})$")
+                                          "$y_{n+1} = y_n + \\Delta t\\, v(t_{n+1/2}, y_{n} + \\frac{1}{2} k_1)$ "
+                                          "where $k_1 = \\Delta t\\, v(t_{n}, y_{n})$")
     }
   }
 }

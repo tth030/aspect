@@ -92,7 +92,7 @@ end
 
 # The benchmark is defined in terms of the nondimensional numbers
 # Di (dissipation number) and gamma (grueneisen parameter). 
-# As Aspect uses physical properties instead of these dimensionless 
+# As ASPECT uses physical properties instead of these dimensionless 
 # numbers in its equations, we replicate the benchmark formulation 
 # by using a new material model that fixes all of the material 
 # constants to 1, except for the thermal expansivity and the viscosity, 
@@ -105,7 +105,7 @@ subsection Material model
     set Di                            = 0.5
     set gamma                         = 1
 
-    set a                             = 2 	# depth-dependent viscosity
+    set a                             = 2   # depth-dependent viscosity
 
     set wavenumber                    = 1
   end

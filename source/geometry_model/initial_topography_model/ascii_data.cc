@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2016 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2016 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -22,12 +22,13 @@
 #include <aspect/global.h>
 #include <aspect/geometry_model/initial_topography_model/ascii_data.h>
 #include <aspect/geometry_model/box.h>
+#include <aspect/geometry_model/two_merged_boxes.h>
 #include <aspect/geometry_model/sphere.h>
 #include <aspect/geometry_model/spherical_shell.h>
 #include <aspect/geometry_model/chunk.h>
 
 #include <deal.II/base/parameter_handler.h>
-#include <deal.II/base/std_cxx11/array.h>
+#include <array>
 
 
 
@@ -65,20 +66,21 @@ namespace aspect
       // add a coordinate here, and, for spherical geometries,
       // change to cartesian coordinates.
       Point<dim> global_point;
-      if (dynamic_cast<const GeometryModel::Box<dim>*> (&this->get_geometry_model()) != 0)
+      if (Plugins::plugin_type_matches<const GeometryModel::Box<dim>> (this->get_geometry_model()) ||
+          Plugins::plugin_type_matches<const GeometryModel::TwoMergedBoxes<dim>> (this->get_geometry_model()))
         {
           // No need to set the vertical coordinate correctly,
           // because it will be thrown away in get_data_component anyway
           for (unsigned int d=0; d<dim-1; d++)
             global_point[d] = surface_point[d];
         }
-      else if (dynamic_cast<const GeometryModel::Sphere<dim>*> (&this->get_geometry_model()) != 0 ||
-               dynamic_cast<const GeometryModel::SphericalShell<dim>*> (&this->get_geometry_model()) != 0 ||
-               dynamic_cast<const GeometryModel::Chunk<dim>*> (&this->get_geometry_model()) != 0)
+      else if (Plugins::plugin_type_matches<const GeometryModel::Sphere<dim>> (this->get_geometry_model()) ||
+               Plugins::plugin_type_matches<const GeometryModel::SphericalShell<dim>> (this->get_geometry_model()) ||
+               Plugins::plugin_type_matches<const GeometryModel::Chunk<dim>> (this->get_geometry_model()))
         {
           // No need to set the radial coordinate correctly,
           // because it will be thrown away in get_data_component anyway
-          std_cxx11::array<double, dim> point;
+          std::array<double, dim> point;
           point[0] = 6371000.0;
           for (unsigned int d=0; d<dim-1; d++)
             point[d+1] = surface_point[d];
@@ -95,6 +97,12 @@ namespace aspect
       return topo;
     }
 
+    template <int dim>
+    Tensor<1,dim-1>
+    AsciiData<dim>::vector_gradient(const Point<dim> &point) const
+    {
+      return Utilities::AsciiDataBoundary<dim>::vector_gradient(surface_boundary_id, point,0);
+    }
 
     template <int dim>
     double
@@ -149,15 +157,15 @@ namespace aspect
                                              "Implementation of a model in which the surface "
                                              "topography is derived from a file containing data "
                                              "in ascii format. The following geometry models "
-                                             "are currently supported: box, chunk, shperical shell. "
+                                             "are currently supported: box, chunk. "
                                              "Note the required format of the "
                                              "input data: The first lines may contain any number of comments "
-                                             "if they begin with '#', but one of these lines needs to "
+                                             "if they begin with `#', but one of these lines needs to "
                                              "contain the number of grid points in each dimension as "
-                                             "for example '# POINTS: 3 3'. "
+                                             "for example `# POINTS: 3 3'. "
                                              "The order of the data columns "
-                                             "has to be `x', 'Topography [m]' in a 2d model and "
-                                             " `x', `y', 'Topography [m]' in a 3d model, which means that "
+                                             "has to be `x', `Topography [m]' in a 2d model and "
+                                             " `x', `y', `Topography [m]' in a 3d model, which means that "
                                              "there has to be a single column "
                                              "containing the topography. "
                                              "Note that the data in the input "
@@ -166,8 +174,7 @@ namespace aspect
                                              "followed by the second in order to "
                                              "assign the correct data to the prescribed coordinates. "
                                              "If you use a spherical model, "
-                                             "then the data will still be handled as Cartesian, "
-                                             "however the assumed grid changes. "
+                                             "then the assumed grid changes. "
                                              "`x' will be replaced by the azimuth angle in radians "
                                              " and `y' by the polar angle in radians measured "
                                              "positive from the north pole. The grid will be assumed to be "

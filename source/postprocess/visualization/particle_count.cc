@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2016 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2016 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -47,15 +47,10 @@ namespace aspect
                       new Vector<float>(this->get_triangulation().n_active_cells()));
 
         // loop over all of the cells and count particles in them
-        typename DoFHandler<dim>::active_cell_iterator
-        cell = this->get_dof_handler().begin_active(),
-        endc = this->get_dof_handler().end();
-
-        unsigned int cell_index = 0;
-        for (; cell!=endc; ++cell,++cell_index)
+        for (const auto &cell : this->get_dof_handler().active_cell_iterators())
           if (cell->is_locally_owned())
             {
-              (*return_value.second)(cell_index) = static_cast<float> (particle_handler.n_particles_in_cell(cell));
+              (*return_value.second)(cell->active_cell_index()) = static_cast<float> (particle_handler.n_particles_in_cell(cell));
             }
 
         return return_value;

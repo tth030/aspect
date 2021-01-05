@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -68,10 +68,32 @@ namespace aspect
         iterated_Advection_and_Stokes,
         single_Advection_iterated_Stokes,
         no_Advection_iterated_Stokes,
+        no_Advection_single_Stokes,
+        no_Advection_iterated_defect_correction_Stokes,
+        single_Advection_iterated_defect_correction_Stokes,
+        iterated_Advection_and_defect_correction_Stokes,
         iterated_Advection_and_Newton_Stokes,
-        single_Advection_no_Stokes
+        single_Advection_iterated_Newton_Stokes,
+        single_Advection_no_Stokes,
+        first_timestep_only_single_Stokes,
+        no_Advection_no_Stokes
       };
     };
+
+    static
+    bool
+    is_defect_correction(const typename NonlinearSolver::Kind &input)
+    {
+      return input == NonlinearSolver::iterated_Advection_and_Newton_Stokes ||
+             input == NonlinearSolver::single_Advection_iterated_Newton_Stokes ||
+             input == NonlinearSolver::no_Advection_iterated_defect_correction_Stokes ||
+             input == NonlinearSolver::single_Advection_iterated_defect_correction_Stokes ||
+             input == NonlinearSolver::iterated_Advection_and_defect_correction_Stokes
+             ?
+             true
+             :
+             false;
+    }
 
     /**
      * @brief The NullspaceRemoval struct
@@ -97,7 +119,12 @@ namespace aspect
     /**
      * A struct that describes the available methods to solve
      * advected fields. This type is at the moment only used to determine how
-     * to advect each compositional field.
+     * to advect each compositional field -- or what else to do with it if
+     * it doesn't satisfy an advection equation, for example if the
+     * compositional field just contains data interpolated from
+     * particles in each time step (`particles`) or if it contains
+     * data interpolated from other sources such as material outputs
+     * (`prescribed_field`), neither of which is further advected.
      */
     struct AdvectionFieldMethod
     {
@@ -105,7 +132,11 @@ namespace aspect
       {
         fem_field,
         particles,
-        static_field
+        volume_of_fluid,
+        static_field,
+        fem_melt_field,
+        prescribed_field,
+        prescribed_field_with_diffusion
       };
     };
 
@@ -127,7 +158,7 @@ namespace aspect
       {
         boussinesq_approximation,
         anelastic_liquid_approximation,
-        isothermal_compression,
+        isentropic_compression,
         custom
       };
 
@@ -139,8 +170,8 @@ namespace aspect
       Kind
       parse(const std::string &input)
       {
-        if (input == "isothermal compression")
-          return Formulation::isothermal_compression;
+        if (input == "isentropic compression")
+          return Formulation::isentropic_compression;
         else if (input == "anelastic liquid approximation")
           return Formulation::anelastic_liquid_approximation;
         else if (input == "Boussinesq approximation")
@@ -167,11 +198,12 @@ namespace aspect
          */
         enum Kind
         {
-          isothermal_compression,
+          isentropic_compression,
           hydrostatic_compression,
           reference_density_profile,
           implicit_reference_density_profile,
           incompressible,
+          projected_density_field,
           ask_material_model
         };
 
@@ -182,8 +214,8 @@ namespace aspect
         static Kind
         parse(const std::string &input)
         {
-          if (input == "isothermal compression")
-            return Formulation::MassConservation::isothermal_compression;
+          if (input == "isentropic compression")
+            return Formulation::MassConservation::isentropic_compression;
           else if (input == "hydrostatic compression")
             return Formulation::MassConservation::hydrostatic_compression;
           else if (input == "reference density profile")
@@ -192,13 +224,15 @@ namespace aspect
             return Formulation::MassConservation::implicit_reference_density_profile;
           else if (input == "incompressible")
             return Formulation::MassConservation::incompressible;
+          else if (input == "projected density field")
+            return Formulation::MassConservation::projected_density_field;
           else if (input == "ask material model")
             return Formulation::MassConservation::ask_material_model;
           else
             AssertThrow(false, ExcNotImplemented());
 
           return Formulation::MassConservation::Kind();
-        };
+        }
       };
 
       /**
@@ -234,8 +268,108 @@ namespace aspect
             AssertThrow(false, ExcNotImplemented());
 
           return Formulation::TemperatureEquation::Kind();
-        };
+        }
       };
+    };
+
+    /**
+     * A struct to provide the setting for "Stabilization method"
+     */
+    struct AdvectionStabilizationMethod
+    {
+      enum Kind
+      {
+        entropy_viscosity,
+        supg
+      };
+
+      /**
+       * This function translates an input string into the
+       * available enum options.
+       */
+      static
+      Kind
+      parse(const std::string &input)
+      {
+        if (input == "entropy viscosity")
+          return entropy_viscosity;
+        else if (input == "SUPG")
+          return supg;
+        else
+          AssertThrow(false, ExcNotImplemented());
+
+        return Kind();
+      }
+
+      static std::string get_options_string()
+      {
+        return "entropy viscosity|SUPG";
+      }
+    };
+
+    /**
+     * This enum represents the different choices for the linear solver
+     * for the Stoke system. See @p stokes_solver_type.
+     */
+    struct StokesSolverType
+    {
+      enum Kind
+      {
+        block_amg,
+        direct_solver,
+        block_gmg
+      };
+
+      static const std::string pattern()
+      {
+        return "block AMG|direct solver|block GMG";
+      }
+
+      static Kind
+      parse(const std::string &input)
+      {
+        if (input == "block AMG")
+          return block_amg;
+        else if (input == "direct solver")
+          return direct_solver;
+        else if (input == "block GMG")
+          return block_gmg;
+        else
+          AssertThrow(false, ExcNotImplemented());
+
+        return Kind();
+      }
+    };
+
+    /**
+     * This enum represents the different choices for the Krylov method
+     * used in the cheap GMG Stokes solve.
+     */
+    struct StokesKrylovType
+    {
+      enum Kind
+      {
+        gmres,
+        idr_s
+      };
+
+      static const std::string pattern()
+      {
+        return "GMRES|IDR(s)";
+      }
+
+      static Kind
+      parse(const std::string &input)
+      {
+        if (input == "GMRES")
+          return gmres;
+        else if (input == "IDR(s)")
+          return idr_s;
+        else
+          AssertThrow(false, ExcNotImplemented());
+
+        return Kind();
+      }
     };
 
     /**
@@ -306,15 +440,14 @@ namespace aspect
      */
     typename NonlinearSolver::Kind nonlinear_solver;
 
+    typename AdvectionStabilizationMethod::Kind advection_stabilization_method;
     double                         nonlinear_tolerance;
-    double                         nonlinear_switch_tolerance;
     bool                           resume_computation;
     double                         start_time;
     double                         CFL_number;
     double                         maximum_time_step;
     double                         maximum_relative_increase_time_step;
-    double                         reaction_time_step;
-    unsigned int                   reaction_steps_per_advection_step;
+    double                         maximum_first_time_step;
     bool                           use_artificial_viscosity_smoothing;
     bool                           use_conduction_timestep;
     bool                           convert_to_years;
@@ -322,21 +455,51 @@ namespace aspect
     double                         surface_pressure;
     double                         adiabatic_surface_temperature;
     unsigned int                   timing_output_frequency;
+    unsigned int                   max_nonlinear_iterations;
+    unsigned int                   max_nonlinear_iterations_in_prerefinement;
+    bool                           use_operator_splitting;
+    std::string                    world_builder_file;
+
+    /**
+     * @}
+     */
+
+    /**
+     * @name section: Solver parameters
+     * @{
+     */
+    double                         temperature_solver_tolerance;
+    double                         composition_solver_tolerance;
+
+    // subsection: Advection solver parameters
+    unsigned int                   advection_gmres_restart_length;
+
+    // subsection: Stokes solver parameters
     bool                           use_direct_stokes_solver;
+    typename StokesSolverType::Kind stokes_solver_type;
+    typename StokesKrylovType::Kind stokes_krylov_type;
+    unsigned int                    idr_s_parameter;
+
     double                         linear_stokes_solver_tolerance;
+    unsigned int                   n_cheap_stokes_solver_steps;
+    unsigned int                   n_expensive_stokes_solver_steps;
     double                         linear_solver_A_block_tolerance;
+    bool                           use_full_A_block_preconditioner;
     double                         linear_solver_S_block_tolerance;
+    unsigned int                   stokes_gmres_restart_length;
+
+    // subsection: AMG parameters
     std::string                    AMG_smoother_type;
     unsigned int                   AMG_smoother_sweeps;
     double                         AMG_aggregation_threshold;
     bool                           AMG_output_details;
-    unsigned int                   max_nonlinear_iterations;
-    unsigned int                   max_nonlinear_iterations_in_prerefinement;
-    unsigned int                   n_cheap_stokes_solver_steps;
-    unsigned int                   n_expensive_stokes_solver_steps;
-    double                         temperature_solver_tolerance;
-    double                         composition_solver_tolerance;
-    bool                           use_operator_splitting;
+
+    // subsection: Operator splitting parameters
+    double                         reaction_time_step;
+    unsigned int                   reaction_steps_per_advection_step;
+
+    // subsection: Diffusion solver parameters
+    double                         diffusion_length_scale;
 
     /**
      * @}
@@ -352,7 +515,7 @@ namespace aspect
      * equations ASPECT will solve.
      * Common formulations are the Boussinesq or Anelastic Liquid
      * Approximations (BA, ALA). ASPECT's original formulation is termed
-     * 'isothermal compression'. 'Custom' allows
+     * 'isentropic compression'. 'Custom' allows
      * to set the approximations individually per equation.
      */
     typename Formulation::Kind formulation;
@@ -360,7 +523,7 @@ namespace aspect
     /**
      * Determines how to formulate the mass conservation equation in ASPECT.
      * Common approximations are 'incompressible' or 'reference density profile'.
-     * ASPECT's original formulation is termed 'isothermal compression'. See the
+     * ASPECT's original formulation is termed 'isentropic compression'. See the
      * manual for more details about the individual terms.
      */
     typename Formulation::MassConservation::Kind formulation_mass_conservation;
@@ -373,6 +536,12 @@ namespace aspect
     typename Formulation::TemperatureEquation::Kind formulation_temperature_equation;
 
     /**
+     * This variable determines whether additional terms related to elastic forces
+     * are added to the Stokes equation.
+     */
+    bool                           enable_elasticity;
+
+    /**
      * @}
      */
 
@@ -382,6 +551,7 @@ namespace aspect
      */
     bool                           include_melt_transport;
     bool                           enable_additional_stokes_rhs;
+    bool                           enable_prescribed_dilation;
 
     /**
      * Map from boundary id to a pair "components", "traction boundary type",
@@ -390,6 +560,12 @@ namespace aspect
      * "function")
      */
     std::map<types::boundary_id, std::pair<std::string,std::string> > prescribed_traction_boundary_indicators;
+
+    /**
+     * A set of boundary ids on which the boundary_heat_flux objects
+     * will be applied.
+     */
+    std::set<types::boundary_id> fixed_heat_flux_boundary_indicators;
 
     /**
      * Selection of operations to perform to remove nullspace from velocity
@@ -412,6 +588,8 @@ namespace aspect
     unsigned int                   min_grid_level;
     std::vector<double>            additional_refinement_times;
     unsigned int                   adaptive_refinement_interval;
+    bool                           skip_solvers_on_initial_refinement;
+    bool                           skip_setup_initial_conditions_on_initial_refinement;
     bool                           run_postprocessors_on_initial_refinement;
     bool                           run_postprocessors_on_nonlinear_iterations;
     /**
@@ -424,8 +602,8 @@ namespace aspect
      * @{
      */
     unsigned int                   stabilization_alpha;
-    double                         stabilization_c_R;
-    double                         stabilization_beta;
+    std::vector<double>            stabilization_c_R;
+    std::vector<double>            stabilization_beta;
     double                         stabilization_gamma;
     double                         discontinuous_penalty;
     bool                           use_limiter_for_discontinuous_temperature_solution;
@@ -454,12 +632,24 @@ namespace aspect
      */
     unsigned int                   stokes_velocity_degree;
     bool                           use_locally_conservative_discretization;
+    bool                           use_equal_order_interpolation_for_stokes;
     bool                           use_discontinuous_temperature_discretization;
     bool                           use_discontinuous_composition_discretization;
     unsigned int                   temperature_degree;
     unsigned int                   composition_degree;
     std::string                    pressure_normalization;
     MaterialModel::MaterialAveraging::AveragingOperation material_averaging;
+
+    /**
+     * @}
+     */
+
+    /**
+     * @name Parameters that have to do with the temperature field
+     * @{
+     */
+
+    typename AdvectionFieldMethod::Kind temperature_method;
 
     /**
      * @}
@@ -494,14 +684,23 @@ namespace aspect
      * @}
      */
     /**
-     * @name Parameters that have to do with free surface
+     * @name Parameters that have to do with mesh deformation
      * @{
      */
-    bool                           free_surface_enabled;
-    std::set<types::boundary_id> free_surface_boundary_indicators;
+    bool                           mesh_deformation_enabled;
     /**
      * @}
      */
+
+    /**
+     * @name Parameters that have to do with volume of fluid calculations
+     * @{
+     */
+    bool                           volume_of_fluid_tracking_enabled;
+    /**
+     * @}
+     */
+
 
   };
 

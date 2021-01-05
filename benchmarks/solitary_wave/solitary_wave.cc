@@ -1,7 +1,27 @@
+/*
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
+
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
 #include <aspect/melt.h>
 #include <aspect/initial_composition/interface.h>
 #include <aspect/postprocess/interface.h>
 #include <aspect/gravity_model/interface.h>
+#include <aspect/geometry_model/interface.h>
 #include <aspect/simulator_access.h>
 #include <aspect/global.h>
 
@@ -264,7 +284,7 @@ namespace aspect
           virtual void vector_value (const Point< dim > &p,
                                      Vector< double >   &values) const
           {
-            double index = static_cast<int>((p[dim-1]-delta_)/max_z_ * (initial_pressure_.size()-1));
+            unsigned int index = static_cast<int>((p[dim-1]-delta_)/max_z_ * (initial_pressure_.size()-1));
             if (p[dim-1]-delta_ < 0)
               index = 0;
             else if (p[dim-1]-delta_ > max_z_)
@@ -368,13 +388,11 @@ namespace aspect
         {
           // Note that this number is based on the background porosity in the
           // solitary wave initial condition.
-          const SolitaryWaveInitialCondition<dim> *initial_composition =
-            this->get_initial_composition_manager().template find_initial_composition_model<SolitaryWaveInitialCondition<dim> >();
+          const SolitaryWaveInitialCondition<dim> &initial_composition =
+            this->get_initial_composition_manager().template
+            get_matching_initial_composition_model<SolitaryWaveInitialCondition<dim> >();
 
-          AssertThrow(initial_composition != 0,
-                      ExcMessage("Material model Solitary Wave only works with the initial composition Solitary wave."));
-
-          return reference_permeability * pow(initial_composition->get_background_porosity(), 3.0) / eta_f;
+          return reference_permeability * pow(initial_composition.get_background_porosity(), 3.0) / eta_f;
 
         }
 
@@ -409,7 +427,7 @@ namespace aspect
         {
           const unsigned int porosity_idx = this->introspection().compositional_index_for_name("porosity");
 
-          for (unsigned int i=0; i<in.position.size(); ++i)
+          for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
             {
               double porosity = in.composition[i][porosity_idx];
 
@@ -427,7 +445,7 @@ namespace aspect
           aspect::MaterialModel::MeltOutputs<dim> *melt_out = out.template get_additional_output<aspect::MaterialModel::MeltOutputs<dim> >();
 
           if (melt_out != NULL)
-            for (unsigned int i=0; i<in.position.size(); ++i)
+            for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
               {
                 double porosity = in.composition[i][porosity_idx];
 
@@ -459,26 +477,29 @@ namespace aspect
         {
           prm.declare_entry ("Reference solid density", "3000",
                              Patterns::Double (0),
-                             "Reference density of the solid $\\rho_{s,0}$. Units: $kg/m^3$.");
+                             "Reference density of the solid $\\rho_{s,0}$. "
+                             "Units: \\si{\\kilogram\\per\\meter\\cubed}.");
           prm.declare_entry ("Reference melt density", "2500",
                              Patterns::Double (0),
-                             "Reference density of the melt/fluid$\\rho_{f,0}$. Units: $kg/m^3$.");
+                             "Reference density of the melt/fluid$\\rho_{f,0}$. "
+                             "Units: \\si{\\kilogram\\per\\meter\\cubed}.");
           prm.declare_entry ("Reference shear viscosity", "1e20",
                              Patterns::Double (0),
                              "The value of the constant viscosity $\\eta_0$ of the solid matrix. "
-                             "Units: $Pa s$.");
+                             "Units: \\si{\\pascal\\second}.");
           prm.declare_entry ("Reference compaction viscosity", "1e20",
                              Patterns::Double (0),
                              "The value of the constant volumetric viscosity $\\xi_0$ of the solid matrix. "
-                             "Units: $Pa s$.");
+                             "Units: \\si{\\pascal\\second}.");
           prm.declare_entry ("Reference melt viscosity", "100.0",
                              Patterns::Double (0),
-                             "The value of the constant melt viscosity $\\eta_f$. Units: $Pa s$.");
+                             "The value of the constant melt viscosity $\\eta_f$. "
+                             "Units: \\si{\\pascal\\second}.");
 
           prm.declare_entry ("Reference permeability", "5e-9",
                              Patterns::Double(),
                              "Reference permeability of the solid host rock."
-                             "Units: $m^2$.");
+                             "Units: \\si{\\meter\\squared}.");
         }
         prm.leave_subsection();
       }
@@ -537,19 +558,14 @@ namespace aspect
       std::cout << "Initialize solitary wave solution"
                 << std::endl;
 
-      if (dynamic_cast<const SolitaryWaveMaterial<dim> *>(&this->get_material_model()) != NULL)
-        {
-          const SolitaryWaveMaterial<dim> *
-          material_model
-            = dynamic_cast<const SolitaryWaveMaterial<dim> *>(&this->get_material_model());
+      AssertThrow(Plugins::plugin_type_matches<const SolitaryWaveMaterial<dim>>(this->get_material_model()),
+                  ExcMessage("Initial condition Solitary Wave only works with the material model Solitary wave."));
 
-          compaction_length = material_model->length_scaling(background_porosity);
-        }
-      else
-        {
-          AssertThrow(false,
-                      ExcMessage("Initial condition Solitary Wave only works with the material model Solitary wave."));
-        }
+      const SolitaryWaveMaterial<dim> &
+      material_model
+        = Plugins::get_plugin_as_type<const SolitaryWaveMaterial<dim>>(this->get_material_model());
+
+      compaction_length = material_model.length_scaling(background_porosity);
 
       AnalyticSolutions::compute_porosity(amplitude,
                                           background_porosity,
@@ -588,7 +604,7 @@ namespace aspect
                              Patterns::Double (0),
                              "Offset of the center of the solitary wave from the boundary"
                              "of the domain. "
-                             "Units: $m$.");
+                             "Units: \\si{\\meter}.");
           prm.declare_entry ("Read solution from file", "false",
                              Patterns::Bool (),
                              "Whether to read the porosity initial condition from "
@@ -670,7 +686,7 @@ namespace aspect
         unsigned int max_points;
         std::vector<double> initial_pressure;
         double maximum_pressure;
-        std_cxx1x::shared_ptr<AnalyticSolutions::FunctionSolitaryWave<dim> > ref_func;
+        std::shared_ptr<AnalyticSolutions::FunctionSolitaryWave<dim> > ref_func;
 
     };
 
@@ -681,31 +697,22 @@ namespace aspect
       // verify that we are using the "Solitary wave" initial conditions and material model,
       // then get the parameters we need
 
-      const SolitaryWaveInitialCondition<dim> *
-      initial_composition
-        = this->get_initial_composition_manager().template find_initial_composition_model<SolitaryWaveInitialCondition<dim> > ();
+      const SolitaryWaveInitialCondition<dim> &initial_composition
+        = this->get_initial_composition_manager().template get_matching_initial_composition_model<SolitaryWaveInitialCondition<dim> > ();
 
-      AssertThrow(initial_composition != NULL,
-                  ExcMessage("Postprocessor solitary wave only works with the solitary wave initial composition."));
+      amplitude           = initial_composition.get_amplitude();
+      background_porosity = initial_composition.get_background_porosity();
+      offset              = initial_composition.get_offset();
 
-      amplitude           = initial_composition->get_amplitude();
-      background_porosity = initial_composition->get_background_porosity();
-      offset              = initial_composition->get_offset();
+      AssertThrow(Plugins::plugin_type_matches<const SolitaryWaveMaterial<dim>>(this->get_material_model()),
+                  ExcMessage("Postprocessor Solitary Wave only works with the material model Solitary wave."));
 
-      if (dynamic_cast<const SolitaryWaveMaterial<dim> *>(&this->get_material_model()) != NULL)
-        {
-          const SolitaryWaveMaterial<dim> *
-          material_model
-            = dynamic_cast<const SolitaryWaveMaterial<dim> *>(&this->get_material_model());
+      const SolitaryWaveMaterial<dim> &material_model
+        = Plugins::get_plugin_as_type<const SolitaryWaveMaterial<dim> >(this->get_material_model());
 
-          compaction_length = material_model->length_scaling(background_porosity);
-          velocity_scaling = material_model->velocity_scaling(background_porosity);
-        }
-      else
-        {
-          AssertThrow(false,
-                      ExcMessage("Postprocessor Solitary Wave only works with the material model Solitary wave."));
-        }
+      compaction_length = material_model.length_scaling(background_porosity);
+      velocity_scaling = material_model.velocity_scaling(background_porosity);
+
 
       // we also need the boundary velocity, but we can not get it from simulator access
       // TODO: write solitary wave boundary condition where the phase speed is calculated!
@@ -936,17 +943,9 @@ namespace aspect
 
       double delta=0;
 
-      if (dynamic_cast<const SolitaryWaveMaterial<dim> *>(&this->get_material_model()) != NULL)
-        {
-          delta = compute_phase_shift();
-          // reset the phase shift of the analytical solution so we can compare the shape of the wave
-          ref_func->set_delta(delta);
-        }
-      else
-        {
-          AssertThrow(false,
-                      ExcMessage("Postprocessor Solitary Wave only works with the material model Solitary wave."));
-        }
+      delta = compute_phase_shift();
+      // reset the phase shift of the analytical solution so we can compare the shape of the wave
+      ref_func->set_delta(delta);
 
       // what we want to compare:
       // (1) error of the numerical phase speed c:
@@ -983,9 +982,8 @@ namespace aspect
                                          VectorTools::L2_norm,
                                          &comp_p);
 
-      double e_f = std::sqrt(Utilities::MPI::sum(cellwise_errors_f.norm_sqr(),MPI_COMM_WORLD));
-      double e_p = std::sqrt(Utilities::MPI::sum(cellwise_errors_p.norm_sqr(),MPI_COMM_WORLD));
-
+      const double e_f = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_f, VectorTools::L2_norm);
+      const double e_p = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_p, VectorTools::L2_norm);
 
       std::ostringstream os;
       os << std::scientific << e_f / amplitude

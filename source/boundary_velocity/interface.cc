@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -24,7 +24,7 @@
 #include <aspect/simulator_access.h>
 
 #include <deal.II/base/exceptions.h>
-#include <deal.II/base/std_cxx11/tuple.h>
+#include <tuple>
 
 #include <list>
 
@@ -80,22 +80,16 @@ namespace aspect
     void
     Manager<dim>::update ()
     {
-      for (typename std::map<types::boundary_id,std::vector<std_cxx11::shared_ptr<BoundaryVelocity::Interface<dim> > > >::const_iterator
-           boundary = boundary_velocity_objects.begin();
-           boundary != boundary_velocity_objects.end(); ++boundary)
-        for (typename std::vector<std_cxx11::shared_ptr<BoundaryVelocity::Interface<dim>>>::const_iterator
-             p = boundary->second.begin();
-             p != boundary->second.end(); ++p)
-          (*p)->update();
-
-      return;
+      for (const auto &boundary : boundary_velocity_objects)
+        for (const auto &p : boundary.second)
+          p->update();
     }
 
 
 
     namespace
     {
-      std_cxx11::tuple
+      std::tuple
       <void *,
       void *,
       aspect::internal::Plugins::PluginList<Interface<2> >,
@@ -110,10 +104,10 @@ namespace aspect
                                               void (*declare_parameters_function) (ParameterHandler &),
                                               Interface<dim> *(*factory_function) ())
     {
-      std_cxx11::get<dim>(registered_plugins).register_plugin (name,
-                                                               description,
-                                                               declare_parameters_function,
-                                                               factory_function);
+      std::get<dim>(registered_plugins).register_plugin (name,
+                                                         description,
+                                                         declare_parameters_function,
+                                                         factory_function);
     }
 
 
@@ -123,7 +117,7 @@ namespace aspect
     Manager<dim>::boundary_velocity (const types::boundary_id boundary_indicator,
                                      const Point<dim> &position) const
     {
-      typename std::map<types::boundary_id,std::vector<std_cxx11::shared_ptr<BoundaryVelocity::Interface<dim> > > >::const_iterator boundary_plugins =
+      typename std::map<types::boundary_id,std::vector<std::unique_ptr<BoundaryVelocity::Interface<dim> > > >::const_iterator boundary_plugins =
         boundary_velocity_objects.find(boundary_indicator);
 
       Assert(boundary_plugins != boundary_velocity_objects.end(),
@@ -133,11 +127,9 @@ namespace aspect
 
       Tensor<1,dim> velocity = Tensor<1,dim>();
 
-      for (typename std::vector<std_cxx11::shared_ptr<BoundaryVelocity::Interface<dim> > >::const_iterator
-           plugin = boundary_plugins->second.begin();
-           plugin != boundary_plugins->second.end(); ++plugin)
-        velocity += (*plugin)->boundary_velocity(boundary_indicator,
-                                                 position);
+      for (const auto &plugin : boundary_plugins->second)
+        velocity += plugin->boundary_velocity(boundary_indicator,
+                                              position);
 
       return velocity;
     }
@@ -154,7 +146,7 @@ namespace aspect
 
 
     template <int dim>
-    const std::map<types::boundary_id,std::vector<std_cxx11::shared_ptr<BoundaryVelocity::Interface<dim> > > > &
+    const std::map<types::boundary_id,std::vector<std::unique_ptr<BoundaryVelocity::Interface<dim> > > > &
     Manager<dim>::get_active_boundary_velocity_conditions () const
     {
       return boundary_velocity_objects;
@@ -188,7 +180,7 @@ namespace aspect
       {
         prm.declare_entry ("Prescribed velocity boundary indicators", "",
                            Patterns::Map (Patterns::Anything(),
-                                          Patterns::Selection(std_cxx11::get<dim>(registered_plugins).get_pattern_of_names ())),
+                                          Patterns::Selection(std::get<dim>(registered_plugins).get_pattern_of_names ())),
                            "A comma separated list denoting those boundaries "
                            "on which the velocity is prescribed, i.e., where unknown "
                            "external forces act to prescribe a particular velocity. This is "
@@ -221,7 +213,7 @@ namespace aspect
                            "to true, velocity should be given in m/yr. "
                            "The following boundary velocity models are available:\n\n"
                            +
-                           std_cxx11::get<dim>(registered_plugins).get_description_string());
+                           std::get<dim>(registered_plugins).get_description_string());
         prm.declare_entry ("Zero velocity boundary indicators", "",
                            Patterns::List (Patterns::Anything()),
                            "A comma separated list of names denoting those boundaries "
@@ -252,7 +244,7 @@ namespace aspect
       }
       prm.leave_subsection ();
 
-      std_cxx11::get<dim>(registered_plugins).declare_parameters (prm);
+      std::get<dim>(registered_plugins).declare_parameters (prm);
     }
 
 
@@ -302,20 +294,19 @@ namespace aspect
         const std::vector<std::string> x_boundary_velocity_indicators
           = Utilities::split_string_list(prm.get("Prescribed velocity boundary indicators"));
 
-        for (std::vector<std::string>::const_iterator p = x_boundary_velocity_indicators.begin();
-             p != x_boundary_velocity_indicators.end(); ++p)
+        for (const auto &p : x_boundary_velocity_indicators)
           {
             // each entry has the format (white space is optional):
             // <id> [x][y][z] : <value (might have spaces)>
             //
             // first tease apart the two halves
-            const std::vector<std::string> split_parts = Utilities::split_string_list (*p, ':');
+            const std::vector<std::string> split_parts = Utilities::split_string_list (p, ':');
             AssertThrow (split_parts.size() == 2,
                          ExcMessage ("The format for prescribed velocity boundary indicators "
                                      "requires that each entry has the form `"
                                      "<id> [x][y][z] : <value>', but there does not "
                                      "appear to be a colon in the entry <"
-                                     + *p
+                                     + p
                                      + ">."));
 
             // the easy part: get the value
@@ -397,24 +388,20 @@ namespace aspect
 
       // go through the list, create objects and let them parse
       // their own parameters
-      for (std::map<types::boundary_id, std::pair<std::string,std::vector<std::string> > >::iterator
-           boundary_id = boundary_velocity_indicators.begin();
-           boundary_id != boundary_velocity_indicators.end(); ++boundary_id)
+      for (const auto &boundary_id : boundary_velocity_indicators)
         {
-          for (std::vector<std::string>::iterator
-               name = boundary_id->second.second.begin();
-               name != boundary_id->second.second.end(); ++name)
+          for (const auto &name : boundary_id.second.second)
             {
-              boundary_velocity_objects[boundary_id->first].push_back(
-                std_cxx11::shared_ptr<Interface<dim> > (std_cxx11::get<dim>(registered_plugins)
-                                                        .create_plugin (*name,
-                                                                        "Boundary velocity::Model names")));
+              boundary_velocity_objects[boundary_id.first].push_back(
+                std::unique_ptr<Interface<dim> > (std::get<dim>(registered_plugins)
+                                                  .create_plugin (name,
+                                                                  "Boundary velocity::Model names")));
 
-              if (SimulatorAccess<dim> *sim = dynamic_cast<SimulatorAccess<dim>*>(boundary_velocity_objects[boundary_id->first].back().get()))
+              if (SimulatorAccess<dim> *sim = dynamic_cast<SimulatorAccess<dim>*>(boundary_velocity_objects[boundary_id.first].back().get()))
                 sim->initialize_simulator (this->get_simulator());
 
-              boundary_velocity_objects[boundary_id->first].back()->parse_parameters (prm);
-              boundary_velocity_objects[boundary_id->first].back()->initialize ();
+              boundary_velocity_objects[boundary_id.first].back()->parse_parameters (prm);
+              boundary_velocity_objects[boundary_id.first].back()->initialize ();
             }
         }
     }
@@ -425,8 +412,8 @@ namespace aspect
     void
     Manager<dim>::write_plugin_graph (std::ostream &out)
     {
-      std_cxx11::get<dim>(registered_plugins).write_plugin_graph ("Boundary velocity interface",
-                                                                  out);
+      std::get<dim>(registered_plugins).write_plugin_graph ("Boundary velocity interface",
+                                                            out);
     }
   }
 }
@@ -440,10 +427,10 @@ namespace aspect
     {
       template <>
       std::list<internal::Plugins::PluginList<BoundaryVelocity::Interface<2> >::PluginInfo> *
-      internal::Plugins::PluginList<BoundaryVelocity::Interface<2> >::plugins = 0;
+      internal::Plugins::PluginList<BoundaryVelocity::Interface<2> >::plugins = nullptr;
       template <>
       std::list<internal::Plugins::PluginList<BoundaryVelocity::Interface<3> >::PluginInfo> *
-      internal::Plugins::PluginList<BoundaryVelocity::Interface<3> >::plugins = 0;
+      internal::Plugins::PluginList<BoundaryVelocity::Interface<3> >::plugins = nullptr;
     }
   }
 
@@ -454,5 +441,7 @@ namespace aspect
   template class Manager<dim>;
 
     ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
   }
 }

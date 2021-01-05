@@ -5,7 +5,7 @@
 # MPI: 2
 
 set Dimension                              = 2
-set End time                               = 700
+set End time                               = 30
 set Use years in output instead of seconds = false
 
 subsection Geometry model
@@ -112,6 +112,7 @@ subsection Postprocess
   set List of postprocessors = velocity statistics, composition statistics, particles
 
   subsection Visualization
+    set Interpolate output = false
     set Time between graphical output = 1
   end
 

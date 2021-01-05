@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2016 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2016 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -42,10 +42,10 @@ namespace aspect
       get_names () const
       {
         std::vector<std::string> solution_names;
-        solution_names.push_back("adiabatic_temperature");
-        solution_names.push_back("adiabatic_pressure");
-        solution_names.push_back("adiabatic_density");
-        solution_names.push_back("adiabatic_density_derivative");
+        solution_names.emplace_back("adiabatic_temperature");
+        solution_names.emplace_back("adiabatic_pressure");
+        solution_names.emplace_back("adiabatic_density");
+        solution_names.emplace_back("adiabatic_density_derivative");
         return solution_names;
       }
 
@@ -67,7 +67,7 @@ namespace aspect
       Adiabat<dim>::
       get_needed_update_flags () const
       {
-        return update_q_points;
+        return update_quadrature_points;
       }
 
 

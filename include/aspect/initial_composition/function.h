@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -49,8 +49,7 @@ namespace aspect
          * Return the initial composition as a function of position and number
          * of compositional field.
          */
-        virtual
-        double initial_composition (const Point<dim> &position, const unsigned int n_comp) const;
+        double initial_composition (const Point<dim> &position, const unsigned int n_comp) const override;
 
         /**
          * Declare the parameters this class takes through input files. The
@@ -68,15 +67,14 @@ namespace aspect
          * parameters. Consequently, derived classes do not have to overload
          * this function if they do not take any runtime parameters.
          */
-        virtual
         void
-        parse_parameters (ParameterHandler &prm);
+        parse_parameters (ParameterHandler &prm) override;
 
       private:
         /**
          * A function object representing the compositional fields.
          */
-        std_cxx11::unique_ptr<Functions::ParsedFunction<dim> > function;
+        std::unique_ptr<Functions::ParsedFunction<dim> > function;
 
         /**
          * The coordinate representation to evaluate the function. Possible

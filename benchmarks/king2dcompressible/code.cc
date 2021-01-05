@@ -1,4 +1,22 @@
+/*
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
 
 #include <aspect/postprocess/interface.h>
 #include <aspect/material_model/simple.h>
@@ -56,7 +74,7 @@ namespace aspect
                               MaterialModelOutputs<dim> &out) const
         {
 
-          for (unsigned int i=0; i < in.temperature.size(); ++i)
+          for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
             {
               const Point<dim> position = in.position[i];
               const double temperature = in.temperature[i];
@@ -165,7 +183,8 @@ namespace aspect
         {
           prm.declare_entry ("Reference density", "3300",
                              Patterns::Double (0),
-                             "Reference density $\\rho_0$. Units: $kg/m^3$.");
+                             "Reference density $\\rho_0$. "
+                             "Units: \\si{\\kilogram\\per\\meter\\cubed}.");
           prm.declare_entry ("Ra", "1e4",
                              Patterns::Double (0),
                              "");
@@ -178,7 +197,7 @@ namespace aspect
           prm.declare_entry ("Reference specific heat", "1250",
                              Patterns::Double (0),
                              "The value of the specific heat $cp$. "
-                             "Units: $J/kg/K$.");
+                             "Units: \\si{\\joule\\per\\kelvin\\per\\kilogram}.");
           prm.declare_entry ("b", "6.907755279",
                              Patterns::Double (0),
                              "");
@@ -248,4 +267,3 @@ namespace aspect
   }
 
 }
-

@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -22,10 +22,11 @@
 
 #include <aspect/mesh_refinement/maximum_refinement_function.h>
 #include <aspect/utilities.h>
+#include <aspect/geometry_model/interface.h>
 
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/fe/fe_values.h>
-#include <math.h>
+#include <cmath>
 
 namespace aspect
 {
@@ -49,9 +50,7 @@ namespace aspect
     void
     MaximumRefinementFunction<dim>::tag_additional_cells () const
     {
-      for (typename Triangulation<dim>::active_cell_iterator
-           cell = this->get_triangulation().begin_active();
-           cell != this->get_triangulation().end(); ++cell)
+      for (const auto &cell : this->get_triangulation().active_cell_iterators())
         {
           if (cell->is_locally_owned())
             {
@@ -61,32 +60,10 @@ namespace aspect
               for ( unsigned int v = 0; v < GeometryInfo<dim>::vertices_per_cell;  ++v)
                 {
                   const Point<dim> vertex = cell->vertex(v);
-                  double maximum_refinement_level = 0;
+                  Utilities::NaturalCoordinate<dim> point =
+                    this->get_geometry_model().cartesian_to_other_coordinates(vertex, coordinate_system);
 
-                  if (coordinate_system == Utilities::Coordinates::depth)
-                    {
-                      const double depth = this->get_geometry_model().depth(vertex);
-                      Point<dim> point;
-                      point(0) = depth;
-                      maximum_refinement_level = max_refinement_level.value(point);
-                    }
-                  else if (coordinate_system == Utilities::Coordinates::spherical)
-                    {
-                      const std_cxx11::array<double,dim> spherical_coordinates =
-                        aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(vertex);
-
-                      // Conversion to evaluate the spherical coordinates in the maximum
-                      // refinement level function.
-                      Point<dim> point;
-                      for (unsigned int i = 0; i<dim; ++i)
-                        point[i] = spherical_coordinates[i];
-
-                      maximum_refinement_level = max_refinement_level.value(point);
-                    }
-                  else if (coordinate_system == Utilities::Coordinates::cartesian)
-                    {
-                      maximum_refinement_level = max_refinement_level.value(vertex);
-                    }
+                  const double maximum_refinement_level = max_refinement_level.value(Utilities::convert_array_to_point<dim>(point.get_coordinates()));
 
                   if (cell->level() >= rint(maximum_refinement_level))
                     clear_refine = true;

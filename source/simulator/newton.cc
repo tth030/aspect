@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2016 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2016 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -24,6 +24,7 @@
 #include <aspect/simulator/assemblers/stokes.h>
 
 #include <aspect/simulator.h>
+#include <aspect/citation_info.h>
 
 namespace aspect
 {
@@ -77,10 +78,10 @@ namespace aspect
         // do nothing, because we assembled div u =0 above already
       }
     else if (this->get_parameters().formulation_mass_conservation ==
-             Parameters<dim>::Formulation::MassConservation::isothermal_compression)
+             Parameters<dim>::Formulation::MassConservation::isentropic_compression)
       {
         assemblers.stokes_system.push_back(
-          std_cxx14::make_unique<aspect::Assemblers::NewtonStokesIsothermalCompressionTerm<dim> >());
+          std_cxx14::make_unique<aspect::Assemblers::NewtonStokesIsentropicCompressionTerm<dim> >());
       }
     else
       AssertThrow(false,
@@ -98,34 +99,6 @@ namespace aspect
     if (this->pressure_rhs_needs_compatibility_modification())
       assemblers.stokes_system.push_back(
         std_cxx14::make_unique<aspect::Assemblers::StokesPressureRHSCompatibilityModification<dim> >());
-
-    assemblers.advection_system.push_back(
-      std_cxx14::make_unique<aspect::Assemblers::AdvectionSystem<dim> >());
-
-    if (this->get_parameters().use_discontinuous_temperature_discretization ||
-        this->get_parameters().use_discontinuous_composition_discretization)
-      {
-        assemblers.advection_system_on_boundary_face.push_back(
-          std_cxx14::make_unique<aspect::Assemblers::AdvectionSystemBoundaryFace<dim> >());
-
-        assemblers.advection_system_on_interior_face.push_back(
-          std_cxx14::make_unique<aspect::Assemblers::AdvectionSystemInteriorFace<dim> >());
-      }
-
-    if (this->get_parameters().use_discontinuous_temperature_discretization)
-      {
-        assemblers.advection_system_assembler_on_face_properties[0].need_face_material_model_data = true;
-        assemblers.advection_system_assembler_on_face_properties[0].need_face_finite_element_evaluation = true;
-      }
-
-    if (this->get_parameters().use_discontinuous_composition_discretization)
-      {
-        for (unsigned int i = 1; i<=this->introspection().n_compositional_fields; ++i)
-          {
-            assemblers.advection_system_assembler_on_face_properties[i].need_face_material_model_data = true;
-            assemblers.advection_system_assembler_on_face_properties[i].need_face_finite_element_evaluation = true;
-          }
-      }
   }
 
 
@@ -135,13 +108,12 @@ namespace aspect
   NewtonHandler<dim>::
   create_material_model_outputs(MaterialModel::MaterialModelOutputs<dim> &output)
   {
-    if (output.template get_additional_output<MaterialModel::MaterialModelDerivatives<dim> >() != NULL)
+    if (output.template get_additional_output<MaterialModel::MaterialModelDerivatives<dim> >() != nullptr)
       return;
 
     const unsigned int n_points = output.viscosities.size();
     output.additional_outputs.push_back(
-      std_cxx11::shared_ptr<MaterialModel::AdditionalMaterialOutputs<dim> >
-      (new MaterialModel::MaterialModelDerivatives<dim> (n_points)));
+      std_cxx14::make_unique<MaterialModel::MaterialModelDerivatives<dim>>(n_points));
   }
 
 
@@ -178,7 +150,7 @@ namespace aspect
         prm.enter_subsection ("Newton solver parameters");
         {
           prm.declare_entry ("Nonlinear Newton solver switch tolerance", "1e-5",
-                             Patterns::Double(0,1),
+                             Patterns::Double(0., 1.),
                              "A relative tolerance with respect to the residual of the first "
                              "iteration, up to which the nonlinear Picard solver will iterate, "
                              "before changing to the Newton solver.");
@@ -186,13 +158,13 @@ namespace aspect
           prm.declare_entry ("Max pre-Newton nonlinear iterations", "10",
                              Patterns::Integer (0),
                              "If the 'Nonlinear Newton solver switch tolerance' is reached before the "
-                             "maximal number of Picard iteration, then the solver switches to Newton "
+                             "maximal number of Picard iterations, then the solver switches to Newton "
                              "solves anyway.");
 
           prm.declare_entry ("Max Newton line search iterations", "5",
                              Patterns::Integer (0),
                              "The maximum number of line search iterations allowed. If the "
-                             "criterion is not reached after this number of iteration, we apply "
+                             "criterion is not reached after this number of iterations, we apply "
                              "the scaled increment even though it does not satisfy the necessary "
                              "criteria and simply continue with the next Newton iteration.");
 
@@ -206,7 +178,7 @@ namespace aspect
                              "residual at the time when the Newton solver is switched on.");
 
           prm.declare_entry ("Maximum linear Stokes solver tolerance", "0.9",
-                             Patterns::Double (0,1),
+                             Patterns::Double (0., 1.),
                              "The linear Stokes solver tolerance is dynamically chosen for the Newton solver, based "
                              "on the Eisenstat walker 1994 paper (https://doi.org/10.1137/0917003), equation 2.2. "
                              "Because this value can become larger then one, we limit this value by this parameter.");
@@ -215,7 +187,7 @@ namespace aspect
                              Patterns::Selection ("SPD|PD|symmetric|none"),
                              "This parameters allows for the stabilization of the preconditioner. If one derives the Newton "
                              "method without any modifications, the matrix created for the preconditioning is not necessarily "
-                             "Symmetric Positive Definite. This is problematic (see Fraters et al., in prep). When `none' is chosen, "
+                             "Symmetric Positive Definite. This is problematic (see \\cite{FBTGS19}). When `none' is chosen, "
                              "the preconditioner is not stabilized. The `symmetric' parameters symmetrizes the matrix, and `PD' makes "
                              "the matrix Positive Definite. `SPD' is the full stabilization, where the matrix is guaranteed Symmetric "
                              "Positive Definite.");
@@ -224,7 +196,7 @@ namespace aspect
                              Patterns::Selection ("SPD|PD|symmetric|none"),
                              "This parameters allows for the stabilization of the velocity block. If one derives the Newton "
                              "method without any modifications, the matrix created for the velocity block is not necessarily "
-                             "Symmetric Positive Definite. This is problematic (see Fraters et al., in prep). When `none' is chosen, "
+                             "Symmetric Positive Definite. This is problematic (see \\cite{FBTGS19}). When `none' is chosen, "
                              "the velocity block is not stabilized. The `symmetric' parameters symmetrizes the matrix, and `PD' makes "
                              "the matrix Positive Definite. `SPD' is the full stabilization, where the matrix is guaranteed Symmetric "
                              "Positive Definite.");
@@ -232,12 +204,12 @@ namespace aspect
           prm.declare_entry ("Use Newton failsafe", "false",
                              Patterns::Bool (),
                              "When this parameter is true and the linear solver fails, we try again, but now with SPD stabilization "
-                             "for both the preconditioner and the velocity block. The SPD stabilization will remain active untill "
+                             "for both the preconditioner and the velocity block. The SPD stabilization will remain active until "
                              "the next timestep, when the default values are restored.");
 
 
           prm.declare_entry ("SPD safety factor", "0.9",
-                             Patterns::Double (0,1),
+                             Patterns::Double (0., 1.),
                              "When stabilizing the Newton matrix, we can encounter situations where the coefficient inside the elliptic (top-left) "
                              "block becomes negative or zero. This coefficient has the form $1+x$ where $x$ can sometimes be smaller than $-1$. In "
                              "this case, the top-left block of the matrix is no longer positive definite, and both preconditioners and iterative "
@@ -267,6 +239,7 @@ namespace aspect
     Parameters::
     parse_parameters (ParameterHandler &prm)
     {
+      CitationInfo::add("NewtonSolver");
       prm.enter_subsection ("Solver parameters");
       {
         prm.enter_subsection ("Newton solver parameters");
@@ -297,10 +270,6 @@ namespace aspect
             velocity_block_stabilization = Stabilization::none;
 
           use_Newton_failsafe = prm.get_bool("Use Newton failsafe");
-
-          AssertThrow((!DEAL_II_VERSION_GTE(9,0,0) && !use_Newton_failsafe) || DEAL_II_VERSION_GTE(9,0,0),
-                      ExcMessage("The failsafe option can't be used with a deal.ii less then 9.0.0."));
-
           SPD_safety_factor = prm.get_double("SPD safety factor");
           use_Eisenstat_Walker_method_for_Picard_iterations = prm.get_bool("Use Eisenstat Walker method for Picard iterations");
 
@@ -334,5 +303,7 @@ namespace aspect
   }
 
   ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
 
 }

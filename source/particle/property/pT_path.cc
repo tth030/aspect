@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2015 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2015 - 2018 by the authors of the ASPECT code.
 
  This file is part of ASPECT.
 
@@ -39,14 +39,13 @@ namespace aspect
 
       template <int dim>
       void
-      PTPath<dim>::update_one_particle_property(const unsigned int data_position,
-                                                const Point<dim> &,
-                                                const Vector<double> &solution,
-                                                const std::vector<Tensor<1,dim> > &,
-                                                const ArrayView<double> &data) const
+      PTPath<dim>::update_particle_property(const unsigned int data_position,
+                                            const Vector<double> &solution,
+                                            const std::vector<Tensor<1,dim> > &/*gradients*/,
+                                            typename ParticleHandler<dim>::particle_iterator &particle) const
       {
-        data[data_position] = solution[this->introspection().component_indices.pressure];
-        data[data_position+1] = solution[this->introspection().component_indices.temperature];
+        particle->get_properties()[data_position]   = solution[this->introspection().component_indices.pressure];
+        particle->get_properties()[data_position+1] = solution[this->introspection().component_indices.temperature];
       }
 
       template <int dim>
@@ -68,7 +67,7 @@ namespace aspect
       PTPath<dim>::get_property_information() const
       {
         std::vector<std::pair<std::string,unsigned int> > property_information (1,std::make_pair("p",1));
-        property_information.push_back(std::make_pair("T",1));
+        property_information.emplace_back("T",1);
         return property_information;
       }
     }

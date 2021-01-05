@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2016 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2016 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -19,8 +19,8 @@
  */
 
 
-#ifndef _aspect__newton_h
-#define _aspect__newton_h
+#ifndef _aspect_newton_h
+#define _aspect_newton_h
 
 #include <aspect/simulator/assemblers/interface.h>
 #include <aspect/simulator_access.h>
@@ -215,16 +215,13 @@ namespace aspect
       public SimulatorAccess<dim>
     {
       public:
-        virtual ~NewtonInterface () {};
-
         /**
          * Attach Newton outputs. Since most Newton assemblers require the
          * material model derivatives they are created in this base class
          * already.
          */
-        virtual
         void
-        create_additional_material_model_outputs(MaterialModel::MaterialModelOutputs<dim> &outputs) const;
+        create_additional_material_model_outputs(MaterialModel::MaterialModelOutputs<dim> &outputs) const override;
     };
 
     /**
@@ -234,11 +231,9 @@ namespace aspect
     class NewtonStokesPreconditioner : public NewtonInterface<dim>
     {
       public:
-        virtual ~NewtonStokesPreconditioner () {}
-
         void
-        execute (internal::Assembly::Scratch::ScratchBase<dim>  &scratch,
-                 internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute (internal::Assembly::Scratch::ScratchBase<dim>  &scratch_base,
+                 internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
     };
 
     /**
@@ -249,11 +244,16 @@ namespace aspect
     class NewtonStokesIncompressibleTerms : public NewtonInterface<dim>
     {
       public:
-        virtual ~NewtonStokesIncompressibleTerms () {}
-
         void
-        execute (internal::Assembly::Scratch::ScratchBase<dim>  &scratch,
-                 internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute (internal::Assembly::Scratch::ScratchBase<dim>  &scratch_base,
+                 internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
+
+        /**
+         * Create additional material models outputs for assembly of derivatives or adding additional
+         * terms to the right hand side of the Stokes equations. The latter could include viscoelastic
+         * forces or other user-defined values calculated within the material model.
+         */
+        void create_additional_material_model_outputs(MaterialModel::MaterialModelOutputs<dim> &outputs) const override;
     };
 
     /**
@@ -265,31 +265,25 @@ namespace aspect
       public SimulatorAccess<dim>
     {
       public:
-        virtual ~NewtonStokesCompressibleStrainRateViscosityTerm () {}
-
-        virtual
         void
-        execute(internal::Assembly::Scratch::ScratchBase<dim>  &scratch,
-                internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute(internal::Assembly::Scratch::ScratchBase<dim>  &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
     };
 
     /**
      * This class assembles the right-hand-side term of the Newton Stokes system
      * that is caused by the compressibility in the mass conservation equation.
      * This function approximates this term as
-     * $- \nabla \mathbf{u} = \frac{1}{\rho} * \frac{\partial rho}{\partial z} \frac{\mathbf{g}}{||\mathbf{g}||} \cdot \mathbf{u}$
+     * $- \nabla \mathbf{u} = \frac{1}{\rho} \frac{\partial rho}{\partial z} \frac{\mathbf{g}}{||\mathbf{g}||} \cdot \mathbf{u}$
      */
     template <int dim>
     class NewtonStokesReferenceDensityCompressibilityTerm : public Assemblers::Interface<dim>,
       public SimulatorAccess<dim>
     {
       public:
-        virtual ~NewtonStokesReferenceDensityCompressibilityTerm () {}
-
-        virtual
         void
-        execute(internal::Assembly::Scratch::ScratchBase<dim>  &scratch,
-                internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute(internal::Assembly::Scratch::ScratchBase<dim>  &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
     };
 
     /**
@@ -298,38 +292,32 @@ namespace aspect
      * It includes this term implicitly in the matrix,
      * which is therefore not longer symmetric.
      * This function approximates this term as
-     * $ - \nabla \mathbf{u} - \frac{1}{\rho} * \frac{\partial rho}{\partial z} \frac{\mathbf{g}}{||\mathbf{g}||} \cdot \mathbf{u} = 0$
+     * $ - \nabla \mathbf{u} - \frac{1}{\rho} \frac{\partial rho}{\partial z} \frac{\mathbf{g}}{||\mathbf{g}||} \cdot \mathbf{u} = 0$
      */
     template <int dim>
     class NewtonStokesImplicitReferenceDensityCompressibilityTerm : public Assemblers::Interface<dim>,
       public SimulatorAccess<dim>
     {
       public:
-        virtual ~NewtonStokesImplicitReferenceDensityCompressibilityTerm () {}
-
-        virtual
         void
-        execute(internal::Assembly::Scratch::ScratchBase<dim>  &scratch,
-                internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute(internal::Assembly::Scratch::ScratchBase<dim>  &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
     };
 
     /**
      * This class assembles the right-hand-side term of the Newton Stokes system
      * that is caused by the compressibility in the mass conservation equation.
      * This function approximates this term as
-     * $ - \nabla \mathbf{u} = \frac{1}{\rho} * \frac{\partial rho}{\partial p} \rho \mathbf{g} \cdot \mathbf{u}$
+     * $ - \nabla \mathbf{u} = \frac{1}{\rho} \frac{\partial rho}{\partial p} \rho \mathbf{g} \cdot \mathbf{u}$
      */
     template <int dim>
-    class NewtonStokesIsothermalCompressionTerm : public Assemblers::Interface<dim>,
+    class NewtonStokesIsentropicCompressionTerm : public Assemblers::Interface<dim>,
       public SimulatorAccess<dim>
     {
       public:
-        virtual ~NewtonStokesIsothermalCompressionTerm () {}
-
-        virtual
         void
-        execute(internal::Assembly::Scratch::ScratchBase<dim>  &scratch,
-                internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute(internal::Assembly::Scratch::ScratchBase<dim>  &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
     };
   }
 }

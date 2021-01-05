@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2016 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2016 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -19,12 +19,7 @@
 */
 
 #include <aspect/gravity_model/ascii_data.h>
-
-#include <aspect/geometry_model/box.h>
-#include <aspect/geometry_model/spherical_shell.h>
-#include <aspect/geometry_model/sphere.h>
-#include <aspect/geometry_model/chunk.h>
-#include <aspect/geometry_model/ellipsoidal_chunk.h>
+#include <aspect/geometry_model/interface.h>
 
 namespace aspect
 {
@@ -55,12 +50,10 @@ namespace aspect
       const double magnitude = this->get_data_component(Point<1>(depth),gravity_index);
 
       // in dependence of what the geometry model is, gravity points in a different direction
-      if (dynamic_cast<const GeometryModel::SphericalShell<dim>*> (&this->get_geometry_model())
-          || dynamic_cast<const GeometryModel::Chunk<dim>*> (&this->get_geometry_model())
-          || dynamic_cast<const GeometryModel::EllipsoidalChunk<dim>*> (&this->get_geometry_model())
-          || dynamic_cast<const GeometryModel::Sphere<dim>*> (&this->get_geometry_model()))
+      if (this->get_geometry_model().natural_coordinate_system() == Utilities::Coordinates::spherical ||
+          this->get_geometry_model().natural_coordinate_system() == Utilities::Coordinates::ellipsoidal)
         return - magnitude * position/position.norm();
-      else if (dynamic_cast<const GeometryModel::Box<dim>*> (&this->get_geometry_model()))
+      else if (this->get_geometry_model().natural_coordinate_system() == Utilities::Coordinates::cartesian)
         {
           Tensor<1,dim> g;
           g[dim-1] = -magnitude;
@@ -114,9 +107,9 @@ namespace aspect
                                   "reference Earth model (PREM, Dziewonski and Anderson, 1981). "
                                   "Note the required format of the "
                                   "input data: The first lines may contain any number of comments "
-                                  "if they begin with '#', but one of these lines needs to "
+                                  "if they begin with `#', but one of these lines needs to "
                                   "contain the number of points in the reference state as "
-                                  "for example '# POINTS: 3'. "
+                                  "for example `# POINTS: 3'. "
                                   "Following the comment lines there has to be a single line "
                                   "containing the names of all data columns, separated by arbitrarily "
                                   "many spaces. Column names are not allowed to contain spaces. "

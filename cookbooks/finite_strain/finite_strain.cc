@@ -1,3 +1,23 @@
+/*
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
+
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
+
 #include <aspect/material_model/simple.h>
 #include <aspect/simulator_access.h>
 
@@ -57,7 +77,7 @@ namespace aspect
           // Assign the strain components to the compositional fields reaction terms.
           // If there are too many fields, we simply fill only the first fields with the
           // existing strain rate tensor components.
-          for (unsigned int q=0; q < in.position.size(); ++q)
+          for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
             {
               // Convert the compositional fields into the tensor quantity they represent.
               Tensor<2,dim> strain;

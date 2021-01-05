@@ -1,3 +1,22 @@
+/*
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
+
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
 #include <aspect/simulator.h>
 #include <deal.II/grid/tria.h>
 #include <aspect/material_model/interface.h>
@@ -55,17 +74,14 @@ namespace aspect
         parse_parameters (ParameterHandler &prm);
 
       private:
-        std::vector<double> compute_volume_fractions( const std::vector<double> &compositional_fields) const;
-
-
         /**
-         * For calculating density by thermal expansivity. Units: $K$
+         * For calculating density by thermal expansivity. Units: $\\si{\\kelvin}$
          */
         double reference_temperature;
 
         /**
          * Defining a minimum strain rate stabilizes the viscosity calculation,
-         * which involves a division by the strain rate. Units: $1/s$.
+         * which involves a division by the strain rate. Units: $\\si{\\per\\second}$.
          */
         std::vector<double> min_strain_rate;
         std::vector<double> min_viscosity;
@@ -107,38 +123,6 @@ namespace aspect
   namespace MaterialModel
   {
     template <int dim>
-    std::vector<double>
-    SimpleNonlinear<dim>::
-    compute_volume_fractions( const std::vector<double> &compositional_fields) const
-    {
-      std::vector<double> volume_fractions( compositional_fields.size()+1);
-
-      //clip the compositional fields so they are between zero and one
-      std::vector<double> x_comp = compositional_fields;
-      for ( unsigned int i=0; i < x_comp.size(); ++i)
-        x_comp[i] = std::min(std::max(x_comp[i], 0.0), 1.0);
-
-      //sum the compositional fields for normalization purposes
-      double sum_composition = 0.0;
-      for ( unsigned int i=0; i < x_comp.size(); ++i)
-        sum_composition += x_comp[i];
-
-      if (sum_composition >= 1.0)
-        {
-          volume_fractions[0] = 0.0;  //background mantle
-          for ( unsigned int i=1; i <= x_comp.size(); ++i)
-            volume_fractions[i] = x_comp[i-1]/sum_composition;
-        }
-      else
-        {
-          volume_fractions[0] = 1.0 - sum_composition; //background mantle
-          for ( unsigned int i=1; i <= x_comp.size(); ++i)
-            volume_fractions[i] = x_comp[i-1];
-        }
-      return volume_fractions;
-    }
-
-    template <int dim>
     void
     SimpleNonlinear<dim>::
     evaluate(const MaterialModel::MaterialModelInputs<dim> &in,
@@ -147,7 +131,7 @@ namespace aspect
       //set up additional output for the derivatives
       MaterialModelDerivatives<dim> *derivatives = out.template get_additional_output<MaterialModelDerivatives<dim> >();
 
-      for (unsigned int i=0; i < in.temperature.size(); ++i)
+      for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
         {
           const double temperature = in.temperature[i];
 
@@ -157,7 +141,7 @@ namespace aspect
           AssertThrow(in.composition[i].size()+1 == n_fields,
                       ExcMessage("Number of compositional fields + 1 not equal to number of fields given in input file."));
 
-          const std::vector<double> volume_fractions = compute_volume_fractions(in.composition[i]);
+          const std::vector<double> volume_fractions = MaterialUtilities::compute_volume_fractions(in.composition[i]);
           double density = 0.0;
           for (unsigned int c=0; c < volume_fractions.size(); ++c)
             {
@@ -183,7 +167,7 @@ namespace aspect
             thermal_conductivities += volume_fractions[c] * thermal_diffusivity[c] * heat_capacity[c] * densities[c];
 
           // calculate effective viscosity
-          if (in.strain_rate.size())
+          if (in.requests_property(MaterialProperties::viscosity))
             {
               // This function calculates viscosities assuming that all the compositional fields
               // experience the same strain rate (isostrain). Since there is only one process in
@@ -292,32 +276,35 @@ namespace aspect
         prm.enter_subsection ("Simple nonlinear");
         {
           // Reference and minimum/maximum values
-          prm.declare_entry ("Reference temperature", "293", Patterns::Double(0),
-                             "For calculating density by thermal expansivity. Units: $K$");
-          prm.declare_entry ("Minimum strain rate", "1.96e-40", Patterns::List(Patterns::Double(0)),
-                             "Stabilizes strain dependent viscosity. Units: $1 / s$");
-          prm.declare_entry ("Minimum viscosity", "1e10", Patterns::List(Patterns::Double(0)),
-                             "Lower cutoff for effective viscosity. Units: $Pa s$");
-          prm.declare_entry ("Maximum viscosity", "1e28", Patterns::List(Patterns::Double(0)),
-                             "Upper cutoff for effective viscosity. Units: $Pa s$");
-          prm.declare_entry ("Effective viscosity coefficient", "1.0", Patterns::List(Patterns::Double(0)),
+          prm.declare_entry ("Reference temperature", "293.", Patterns::Double(0.),
+                             "For calculating density by thermal expansivity. Units: \\si{\\kelvin}");
+          prm.declare_entry ("Minimum strain rate", "1.96e-40", Patterns::List(Patterns::Double(0.)),
+                             "Stabilizes strain dependent viscosity. Units: \\si{\\per\\second}");
+          prm.declare_entry ("Minimum viscosity", "1e10", Patterns::List(Patterns::Double(0.)),
+                             "Lower cutoff for effective viscosity. Units: \\si{\\pascal\\second}");
+          prm.declare_entry ("Maximum viscosity", "1e28", Patterns::List(Patterns::Double(0.)),
+                             "Upper cutoff for effective viscosity. Units: \\si{\\pascal\\second}");
+          prm.declare_entry ("Effective viscosity coefficient", "1.0", Patterns::List(Patterns::Double(0.)),
                              "Scaling coefficient for effective viscosity.");
-          prm.declare_entry ("Reference viscosity", "1e22", Patterns::List(Patterns::Double(0)),
-                             "Reference viscosity for nondimensionalization. Units $Pa s$");
+          prm.declare_entry ("Reference viscosity", "1e22", Patterns::List(Patterns::Double(0.)),
+                             "Reference viscosity for nondimensionalization. Units: \\si{\\pascal\\second}");
 
           // Equation of state parameters
-          prm.declare_entry ("Thermal diffusivity", "0.8e-6", Patterns::List(Patterns::Double(0)), "Units: $m^2/s$");
-          prm.declare_entry ("Heat capacity", "1.25e3", Patterns::List(Patterns::Double(0)), "Units: $J / (K * kg)$");
+          prm.declare_entry ("Thermal diffusivity", "0.8e-6", Patterns::List(Patterns::Double(0.)),
+                             "Units: \\si{\\meter\\squared\\per\\second}");
+          prm.declare_entry ("Heat capacity", "1.25e3", Patterns::List(Patterns::Double(0.)),
+                             "Units: \\si{\\joule\\per\\kelvin\\per\\kilogram}");
           prm.declare_entry ("Densities", "3300.",
-                             Patterns::List(Patterns::Double(0)),
+                             Patterns::List(Patterns::Double(0.)),
                              "List of densities, $\\rho$, for background mantle and compositional fields, "
                              "for a total of N+1 values, where N is the number of compositional fields. "
-                             "If only one values is given, then all use the same value.  Units: $kg / m^3$");
+                             "If only one value is given, then all use the same value. "
+                             "Units: \\si{\\kilogram\\per\\meter\\cubed}");
           prm.declare_entry ("Thermal expansivities", "3.5e-5",
-                             Patterns::List(Patterns::Double(0)),
+                             Patterns::List(Patterns::Double(0.)),
                              "List of thermal expansivities for background mantle and compositional fields, "
                              "for a total of N+1 values, where N is the number of compositional fields. "
-                             "If only one values is given, then all use the same value.  Units: $1 / K$");
+                             "If only one value is given, then all use the same value.  Units: \\si{\\per\\kelvin}");
 
 
           // SimpleNonlinear creep parameters
@@ -325,20 +312,20 @@ namespace aspect
                              Patterns::List(Patterns::Double(0)),
                              "List of viscosity prefactors, $A$, for background mantle and compositional fields, "
                              "for a total of N+1 values, where N is the number of compositional fields. "
-                             "If only one values is given, then all use the same value. "
-                             "Units: $Pa^{-n_{dislocation}} m^{n_{dislocation}/m_{dislocation}} s^{-1}$");
-          prm.declare_entry ("Stress exponent", "3",
-                             Patterns::List(Patterns::Double(0)),
+                             "If only one value is given, then all use the same value. "
+                             "Units: \\si{\\pascal}$^{-n_{\\text{dislocation}}}$ \\si{\\meter}$^{n_{\\text{dislocation}}/m_{\\text{dislocation}}}$ \\si{\\per\\second}");
+          prm.declare_entry ("Stress exponent", "3.",
+                             Patterns::List(Patterns::Double(0.)),
                              "List of stress exponents, $n_dislocation$, for background mantle and compositional fields, "
                              "for a total of N+1 values, where N is the number of compositional fields. "
-                             "If only one values is given, then all use the same value.  Units: None");
+                             "If only one value is given, then all use the same value.  Units: None");
 
           // averaging parameters
-          prm.declare_entry ("Viscosity averaging p", "-1",
+          prm.declare_entry ("Viscosity averaging p", "-1.",
                              Patterns::Double(),
                              "This is the p value in the generalized weighed average equation: "
                              " $\\text{mean} = \\frac{1}{k}(\\sum_{i=1}^k \\big(c_i \\eta_{\\text{eff}_i}^p)\\big)^{\\frac{1}{p}}$. "
-                             " Units: $Pa s$");
+                             " Units: \\si{\\pascal\\second}");
 
           // strain-rate deviator parameter
           prm.declare_entry ("Use deviator of strain-rate", "true",
@@ -430,4 +417,3 @@ namespace aspect
                                    "p-norm function. The volume fractions are used as weights for the averaging. ")
   }
 }
-

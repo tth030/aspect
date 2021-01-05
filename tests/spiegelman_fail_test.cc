@@ -68,8 +68,6 @@ namespace aspect
     class SpiegelmanMaterial : public MaterialModel::Interface<dim>, public ::aspect::SimulatorAccess<dim>
     {
       public:
-        std::vector<double> compute_volume_fractions( const std::vector<double> &compositional_fields) const;
-
         double compute_second_invariant(const SymmetricTensor<2,dim> strain_rate, const double min_strain_rate) const;
 
         double compute_viscosity(const double edot_ii,const double pressure,const int comp, const double constant_viscosity,const bool compute_full_viscosity, const double min_visc, const double max_visc) const;
@@ -114,7 +112,7 @@ namespace aspect
 
         /**
          * Defining a minimum strain rate stabilizes the viscosity calculation,
-         * which involves a division by the strain rate. Units: $1/s$.
+         * which involves a division by the strain rate. Units: $\\si{\\per\\second}$.
          */
         std::vector<double> min_strain_rate;
         std::vector<double> min_visc;
@@ -188,38 +186,6 @@ namespace aspect
   namespace MaterialModel
   {
     template <int dim>
-    std::vector<double>
-    SpiegelmanMaterial<dim>::
-    compute_volume_fractions( const std::vector<double> &compositional_fields) const
-    {
-      std::vector<double> volume_fractions( compositional_fields.size()+1);
-
-      // clip the compositional fields so they are between zero and one
-      std::vector<double> x_comp = compositional_fields;
-      for ( unsigned int i=0; i < x_comp.size(); ++i)
-        x_comp[i] = std::min(std::max(x_comp[i], 0.0), 1.0);
-
-      // sum the compositional fields for normalization purposes
-      double sum_composition = 0.0;
-      for ( unsigned int i=0; i < x_comp.size(); ++i)
-        sum_composition += x_comp[i];
-
-      if (sum_composition >= 1.0)
-        {
-          volume_fractions[0] = 0.0;  // background material
-          for ( unsigned int i=1; i <= x_comp.size(); ++i)
-            volume_fractions[i] = x_comp[i-1]/sum_composition;
-        }
-      else
-        {
-          volume_fractions[0] = 1.0 - sum_composition; // background material
-          for ( unsigned int i=1; i <= x_comp.size(); ++i)
-            volume_fractions[i] = x_comp[i-1];
-        }
-      return volume_fractions;
-    }
-
-    template <int dim>
     double
     SpiegelmanMaterial<dim>::
     compute_second_invariant(const SymmetricTensor<2,dim> strain_rate, const double min_strain_rate) const
@@ -281,7 +247,7 @@ namespace aspect
       MaterialModelDerivatives<dim> *derivatives;
       derivatives = out.template get_additional_output<MaterialModelDerivatives<dim> >();
 
-      for (unsigned int i=0; i < in.temperature.size(); ++i)
+      for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
         {
           const double temperature = in.temperature[i];
           const double pressure = in.pressure[i];
@@ -292,7 +258,7 @@ namespace aspect
           AssertThrow(in.composition[i].size()+1 == n_fields,
                       ExcMessage("Number of compositional fields + 1 not equal to number of fields given in input file."));
 
-          const std::vector<double> volume_fractions = compute_volume_fractions(in.composition[i]);
+          const std::vector<double> volume_fractions = MaterialUtilities::compute_volume_fractions(in.composition[i]);
           double density = 0.0;
           for (unsigned int c=0; c < volume_fractions.size(); ++c)
             {
@@ -316,7 +282,7 @@ namespace aspect
             thermal_conductivities += volume_fractions[c] * thermal_diffusivity[c] * heat_capacity[c] * densities[c];
 
           // calculate effective viscosity
-          if (in.strain_rate.size())
+          if (in.requests_property(MaterialProperties::viscosity))
             {
               // This function calculates viscosities assuming that all the compositional fields
               // experience the same strain rate (isostrain). Since there is only one process in
@@ -345,7 +311,7 @@ namespace aspect
 
                   Assert(dealii::numbers::is_finite(composition_viscosities[c]),ExcMessage ("Error: Viscosity is not finite."));
 
-                  if (derivatives != NULL)
+                  if (derivatives != nullptr)
                     {
                       if (use_analytical_derivative)
                         {
@@ -434,7 +400,7 @@ namespace aspect
               out.viscosities[i] = Utilities::weighted_p_norm_average(volume_fractions, composition_viscosities, viscosity_averaging_p);
               Assert(dealii::numbers::is_finite(out.viscosities[i]),ExcMessage ("Error: Averaged viscosity is not finite."));
 
-              if (derivatives != NULL)
+              if (derivatives != nullptr)
                 {
                   derivatives->viscosity_derivative_wrt_strain_rate[i] = Utilities::derivative_of_weighted_p_norm_average(out.viscosities[i],volume_fractions, composition_viscosities, composition_viscosities_derivatives, viscosity_averaging_p);
                   derivatives->viscosity_derivative_wrt_pressure[i] = Utilities::derivative_of_weighted_p_norm_average(out.viscosities[i],volume_fractions, composition_viscosities, composition_dviscosities_dpressure, viscosity_averaging_p);
@@ -518,7 +484,7 @@ namespace aspect
                            Patterns::List(Patterns::Double(0)),
                            "List of thermal expansivities for background mantle and compositional fields, "
                            "for a total of N+1 values, where N is the number of compositional fields. "
-                           "If only one values is given, then all use the same value.  Units: $1 / K$");
+                           "If only one value is given, then all use the same value.  Units: \\si{\\per\\kelvin}");
         prm.declare_entry ("List of reference densities", "2700",
                            Patterns::List (Patterns::Double(0)),
                            "A list of reference densities equal to the number of "
@@ -553,26 +519,26 @@ namespace aspect
         {
           // Reference and minimum/maximum values
           prm.declare_entry ("Reference temperature", "293", Patterns::Double(0),
-                             "For calculating density by thermal expansivity. Units: $K$");
+                             "For calculating density by thermal expansivity. Units: \\si{\\kelvin}");
           prm.declare_entry ("Minimum strain rate", "1.96e-40", Patterns::List(Patterns::Double(0)),
-                             "Stabilizes strain dependent viscosity. Units: $1 / s$");
+                             "Stabilizes strain dependent viscosity. Units: \\si{\\per\\second}");
           prm.declare_entry ("Minimum viscosity", "1e10", Patterns::List(Patterns::Double(0)),
-                             "Lower cutoff for effective viscosity. Units: $Pa s$");
+                             "Lower cutoff for effective viscosity. Units: \\si{\\pascal\\second}");
           prm.declare_entry ("Maximum viscosity", "1e28", Patterns::List(Patterns::Double(0)),
-                             "Upper cutoff for effective viscosity. Units: $Pa s$");
+                             "Upper cutoff for effective viscosity. Units: \\si{\\pascal\\second}");
           prm.declare_entry ("Effective viscosity coefficient", "1.0", Patterns::List(Patterns::Double(0)),
                              "Scaling coefficient for effective viscosity.");
           prm.declare_entry ("Reference viscosity", "1e22", Patterns::List(Patterns::Double(0)),
                              "Reference viscosity for nondimensionalization. Units $Pa s$");
           prm.declare_entry ("Reference compressibility", "4e-12", Patterns::Double (0),
-                             "The value of the reference compressibility. Units: $1/Pa$.");
+                             "The value of the reference compressibility. Units: \\si{\\per\\pascal}.");
 
           // averaging parameters
           prm.declare_entry ("Viscosity averaging p", "-1",
                              Patterns::Double(),
                              "This is the p value in the generalized weighed average eqation: "
                              " mean = \\frac{1}{k}(\\sum_{i=1}^k \\big(c_i \\eta_{\\text{eff}_i}^p)\\big)^{\\frac{1}{p}}. "
-                             " Units: $Pa s$");
+                             " Units: \\si{\\pascal\\second}");
 
           // finite difference versus analytical
           prm.declare_entry ("Use analytical derivative", "true",
@@ -700,4 +666,3 @@ namespace aspect
                                    "have been implemented for this material model.")
   }
 }
-

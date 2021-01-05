@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2017 by the authors of the ASPECT code.
+  Copyright (C) 2017 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -32,7 +32,7 @@ namespace aspect
       VolumetricStrainRate ()
         :
         DataPostprocessorScalar<dim> ("volumetric_strain_rate",
-                                      update_gradients | update_q_points)
+                                      update_gradients | update_quadrature_points)
       {}
 
 
@@ -58,6 +58,11 @@ namespace aspect
             const double div_u = trace(grad_u);
             computed_quantities[q](0) = div_u;
           }
+
+        // average the values if requested
+        const auto &viz = this->get_postprocess_manager().template get_matching_postprocessor<Postprocess::Visualization<dim> >();
+        if (!viz.output_pointwise_stress_and_strain())
+          average_quantities(computed_quantities);
       }
     }
   }

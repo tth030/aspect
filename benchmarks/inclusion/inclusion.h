@@ -86,7 +86,9 @@ namespace aspect
       class FunctionInclusion : public Function<dim>
       {
         public:
-          FunctionInclusion (double eta_B) : Function<dim>(dim+2), eta_B_(eta_B) {}
+          FunctionInclusion (double eta_B,
+                             const unsigned int n_compositional_fields)
+            : Function<dim>(dim+2+n_compositional_fields), eta_B_(eta_B) {}
           virtual void vector_value (const Point< dim >   &p,
                                      Vector< double >   &values) const
           {
@@ -155,7 +157,7 @@ namespace aspect
         virtual void evaluate(const MaterialModel::MaterialModelInputs<dim> &in,
                               MaterialModel::MaterialModelOutputs<dim> &out) const
         {
-          for (unsigned int i=0; i < in.position.size(); ++i)
+          for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
             {
               const Point<dim> &pos = in.position[i];
               double r2 = (pos[0]-1.0)*(pos[0]-1.0) + (pos[1]-1.0)*(pos[1]-1.0);
@@ -167,6 +169,8 @@ namespace aspect
               out.specific_heat[i] = 0;
               out.thermal_expansion_coefficients[i] = 0;
               out.thermal_conductivities[i] = 0.0;
+              out.entropy_derivative_pressure[i] = 0.0;
+              out.entropy_derivative_temperature[i] = 0.0;
             }
         }
 
@@ -207,7 +211,7 @@ namespace aspect
             prm.enter_subsection("Inclusion");
             {
               prm.declare_entry ("Viscosity jump", "1e3",
-                                 Patterns::Double (0),
+                                 Patterns::Double (0.),
                                  "Viscosity in the Inclusion.");
             }
             prm.leave_subsection();
@@ -285,22 +289,20 @@ namespace aspect
          */
         virtual
         std::pair<std::string,std::string>
-        execute (TableHandler &statistics)
+        execute (TableHandler &/*statistics*/)
         {
-          std_cxx1x::shared_ptr<Function<dim> > ref_func;
-          if (dynamic_cast<const InclusionMaterial<dim> *>(&this->get_material_model()) != NULL)
-            {
-              const InclusionMaterial<dim> *
-              material_model
-                = dynamic_cast<const InclusionMaterial<dim> *>(&this->get_material_model());
+          std::unique_ptr<Function<dim> > ref_func;
 
-              ref_func.reset (new AnalyticSolutions::FunctionInclusion<dim>(material_model->get_eta_B()));
-            }
-          else
-            {
-              AssertThrow(false,
-                          ExcMessage("Postprocessor only works with the inclusion material model."));
-            }
+          AssertThrow(Plugins::plugin_type_matches<const InclusionMaterial<dim>>(this->get_material_model()),
+                      ExcMessage("Postprocessor only works with the inclusion material model."));
+
+          const InclusionMaterial<dim> &
+          material_model
+            = Plugins::get_plugin_as_type<const InclusionMaterial<dim> >(this->get_material_model());
+
+          ref_func.reset (new AnalyticSolutions::FunctionInclusion<dim>(
+                            material_model.get_eta_B(),
+                            this->n_compositional_fields()));
 
           const QGauss<dim> quadrature_formula (this->introspection().polynomial_degree.velocities+2);
 
@@ -343,15 +345,15 @@ namespace aspect
                                              VectorTools::L2_norm,
                                              &comp_p);
 
+          const double u_l1 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_u, VectorTools::L1_norm);
+          const double p_l1 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_p, VectorTools::L1_norm);
+          const double u_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_ul2, VectorTools::L2_norm);
+          const double p_l2 = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_pl2, VectorTools::L2_norm);
+
           // Compute stokes unknowns, do not include temperature
-          unsigned int n_stokes_dofs = this->introspection().system_dofs_per_block[this->introspection().block_indices.velocities];
+          types::global_dof_index n_stokes_dofs = this->introspection().system_dofs_per_block[this->introspection().block_indices.velocities];
           if (this->introspection().block_indices.velocities != this->introspection().block_indices.pressure)
             n_stokes_dofs  += this->introspection().system_dofs_per_block[this->introspection().block_indices.pressure];
-
-          const double u_l1 = Utilities::MPI::sum(cellwise_errors_u.l1_norm(),this->get_mpi_communicator());
-          const double p_l1 = Utilities::MPI::sum(cellwise_errors_p.l1_norm(),this->get_mpi_communicator());
-          const double u_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_ul2.norm_sqr(),this->get_mpi_communicator()));
-          const double p_l2 = std::sqrt(Utilities::MPI::sum(cellwise_errors_pl2.norm_sqr(),this->get_mpi_communicator()));
 
           std::ostringstream os;
           os << n_stokes_dofs << "; "

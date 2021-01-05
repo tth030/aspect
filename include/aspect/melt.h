@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2016 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2016 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -34,6 +34,44 @@ namespace aspect
 
   namespace MaterialModel
   {
+    /**
+     * The MeltInputs provide the compaction pressures and
+     * melt (fluid) velocities, so that they can be used as
+     * additional inputs in heating or material models.
+     */
+    template <int dim>
+    class MeltInputs : public AdditionalMaterialInputs<dim>
+    {
+      public:
+        /**
+         * Constructor. When the MeltInputs are created,
+         * all properties are initialized with signalingNaNs.
+         * This means that individual heating or material models
+         * can all attach the plugins they need, and in a later
+         * step they will all be filled together (using the fill
+         * function).
+         */
+        MeltInputs (const unsigned int n_points);
+
+        /**
+         * Compaction pressure values $p_c$ at the given positions.
+         */
+        std::vector<double> compaction_pressures;
+
+        /**
+         * An approximation for the fluid (melt) velocities
+         * at the given positions.
+         */
+        std::vector<Tensor<1,dim> > fluid_velocities;
+
+        /**
+         * Fill the compaction pressures and fluid velocities.
+         */
+        void fill (const LinearAlgebra::BlockVector &solution,
+                   const FEValuesBase<dim>          &fe_values,
+                   const Introspection<dim>         &introspection) override;
+    };
+
     template <int dim>
     class MeltOutputs : public AdditionalMaterialOutputs<dim>
     {
@@ -85,7 +123,7 @@ namespace aspect
          */
         void average (const MaterialAveraging::AveragingOperation operation,
                       const FullMatrix<double>  &projection_matrix,
-                      const FullMatrix<double>  &expansion_matrix);
+                      const FullMatrix<double>  &expansion_matrix) override;
     };
 
     /**
@@ -147,7 +185,7 @@ namespace aspect
          */
         double p_c_scale (const MaterialModel::MaterialModelInputs<dim> &inputs,
                           const MaterialModel::MaterialModelOutputs<dim> &outputs,
-                          const MeltHandler<dim> &handler,
+                          const MeltHandler<dim> &melt_handler,
                           const bool consider_is_melt_cell) const;
     };
 
@@ -173,9 +211,8 @@ namespace aspect
          * melt material model properties they are created in this base class
          * already.
          */
-        virtual
         void
-        create_additional_material_model_outputs(MaterialModel::MaterialModelOutputs<dim> &outputs) const;
+        create_additional_material_model_outputs(MaterialModel::MaterialModelOutputs<dim> &outputs) const override;
     };
 
     /**
@@ -186,10 +223,9 @@ namespace aspect
     class MeltStokesPreconditioner : public MeltInterface<dim>
     {
       public:
-        virtual
         void
-        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch,
-                internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
     };
 
     /**
@@ -200,10 +236,9 @@ namespace aspect
     class MeltStokesSystem : public MeltInterface<dim>
     {
       public:
-        virtual
         void
-        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch,
-                internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
     };
 
 
@@ -216,10 +251,9 @@ namespace aspect
     class MeltStokesSystemBoundary : public MeltInterface<dim>
     {
       public:
-        virtual
         void
-        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch,
-                internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
     };
 
     /**
@@ -230,18 +264,16 @@ namespace aspect
     class MeltAdvectionSystem : public MeltInterface<dim>
     {
       public:
-        virtual
         void
-        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch,
-                internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
 
         /**
          * Compute the residual of the advection system on a single cell in
          * the case of melt migration.
          */
-        virtual
         std::vector<double>
-        compute_residual(internal::Assembly::Scratch::ScratchBase<dim> &scratch) const;
+        compute_residual(internal::Assembly::Scratch::ScratchBase<dim> &scratch_base) const override;
     };
 
     /**
@@ -253,10 +285,9 @@ namespace aspect
     class MeltPressureRHSCompatibilityModification : public MeltInterface<dim>
     {
       public:
-        virtual
         void
-        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch,
-                internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
     };
 
     /**
@@ -266,10 +297,9 @@ namespace aspect
     class MeltBoundaryTraction : public MeltInterface<dim>
     {
       public:
-        virtual
         void
-        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch,
-                internal::Assembly::CopyData::CopyDataBase<dim> &data) const;
+        execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const override;
     };
   }
 
@@ -383,19 +413,25 @@ namespace aspect
       /**
        * Setup SimulatorAccess for the plugins related to melt transport.
        */
-      void initialize_simulator (const Simulator<dim> &simulator_object);
+      void initialize_simulator (const Simulator<dim> &simulator_object) override;
 
       /**
        * Compute fluid velocity and solid pressure in this ghosted solution vector.
        * The fluid velocity is computed by solving a mass matrix problem, and the
        * solid pressure is computed algebraically.
        *
+       * @param system_matrix The system matrix with an already set up sparsity
+       * pattern that will be used by this function to compute the melt variables.
        * @param solution The existing solution vector that contains the values
        * for porosity, compaction pressure, fluid pressure and solid velocity
        * obtained by solving the Stokes and advection system, and that will be
        * updated with the computed values for fluid velocity and solid pressure.
+       * @param system_rhs The right-hand side vector that will be used by
+       * this function to compute the melt variables.
        */
-      void compute_melt_variables(LinearAlgebra::BlockVector &solution);
+      void compute_melt_variables(LinearAlgebra::BlockSparseMatrix &system_matrix,
+                                  LinearAlgebra::BlockVector &solution,
+                                  LinearAlgebra::BlockVector &system_rhs);
 
       /**
        * Return whether this object refers to the porosity field.
@@ -417,17 +453,7 @@ namespace aspect
        * This reverts the system of equations we solve back to the Stokes
        * system without melt transport for these cells.
        */
-      void add_current_constraints(ConstraintMatrix &constraints);
-
-      /**
-       * Copy the current constraints and store them in a private member
-       * variable so that we can use them later. This is necessary because
-       * we want to add the melt constraints, which depend on the solution
-       * of the porosity field, later on, after we have computed this solution.
-       * In this way, we only need to update the constraints matrix instead
-       * of computing all constraints again.
-       */
-      void save_constraints(ConstraintMatrix &constraints);
+      void add_current_constraints(AffineConstraints<double> &constraints);
 
       /**
        * Returns the entry of the private variable is_melt_cell_vector for the
@@ -464,7 +490,7 @@ namespace aspect
        * initialization can be done together with the other objects related to melt
        * transport.
        */
-      const std_cxx11::unique_ptr<aspect::BoundaryFluidPressure::Interface<dim> > boundary_fluid_pressure;
+      const std::unique_ptr<aspect::BoundaryFluidPressure::Interface<dim> > boundary_fluid_pressure;
 
       /**
        * is_melt_cell_vector[cell->active_cell_index()] says whether we want to
@@ -481,7 +507,7 @@ namespace aspect
        * which depend on the solution of the porosity field, later after
        * we have computed this solution.
        */
-      ConstraintMatrix current_constraints;
+      AffineConstraints<double> current_constraints;
 
   };
 

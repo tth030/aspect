@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2015 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2015 - 2018 by the authors of the ASPECT code.
 
  This file is part of ASPECT.
 
@@ -52,7 +52,7 @@ namespace aspect
           {
             std::ostringstream field_name;
             field_name << "initial " << this->introspection().name_for_compositional_index(i);
-            property_information.push_back(std::make_pair(field_name.str(),1));
+            property_information.emplace_back(field_name.str(),1);
           }
 
         return property_information;

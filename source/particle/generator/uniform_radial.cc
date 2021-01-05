@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2015 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2015 - 2020 by the authors of the ASPECT code.
 
  This file is part of ASPECT.
 
@@ -31,7 +31,7 @@ namespace aspect
     {
       template <int dim>
       void
-      UniformRadial<dim>::generate_particles(std::multimap<types::LevelInd, Particle<dim> > &particles)
+      UniformRadial<dim>::generate_particles(std::multimap<Particles::internal::LevelInd, Particle<dim> > &particles)
       {
         // Create the array of shell to deal with
         const double radial_spacing = (P_max[0] - P_min[0]) / fmax(radial_layers-1,1);
@@ -48,7 +48,7 @@ namespace aspect
             for (unsigned int i = 0; i < radial_layers; ++i)
               {
                 const double radius = P_min[0] + (radial_spacing * i);
-                particles_per_layer[i] = round(n_particles * radius / total_radius);
+                particles_per_layer[i] = static_cast<unsigned int>(round(n_particles * radius / total_radius));
               }
           }
         else if (dim == 3)
@@ -59,7 +59,7 @@ namespace aspect
             for (unsigned int i = 0; i < radial_layers; ++i)
               {
                 const double area = std::pow(P_min[0] + (radial_spacing * i),2);
-                particles_per_layer[i] = round(n_particles * area / total_area);
+                particles_per_layer[i] = static_cast<unsigned int>(round(n_particles * area / total_area));
               }
           }
         else
@@ -68,7 +68,7 @@ namespace aspect
         // Generate particles
 
         types::particle_index particle_index = 0;
-        std_cxx11::array<double,dim> spherical_coordinates;
+        std::array<double,dim> spherical_coordinates;
         for (unsigned int i = 0; i < radial_layers; ++i)
           {
             spherical_coordinates[0] = P_min[0] + (radial_spacing * i);
@@ -94,8 +94,13 @@ namespace aspect
               }
             else if (dim == 3)
               {
-                const unsigned int theta_particles = round(sqrt(particles_per_layer[i]));
-                const unsigned int phi_particles = round ((double) particles_per_layer[i] / (double) theta_particles);
+                const unsigned int theta_particles = static_cast<unsigned int>(
+                                                       round(sqrt(particles_per_layer[i])));
+                const unsigned int phi_particles = static_cast<unsigned int>(
+                                                     round(
+                                                       static_cast<double>(particles_per_layer[i])
+                                                       /
+                                                       static_cast<double>(theta_particles)));
                 const double theta_spacing = (P_max[2] - P_min[2]) / fmax(theta_particles-1,1);
 
                 for (unsigned int j = 0; j < theta_particles; ++j)
@@ -103,7 +108,7 @@ namespace aspect
                     spherical_coordinates[2] = P_min[2] + j * theta_spacing;
 
                     // Average value of sin(n) from 0 to 180 degrees is (2/pi)
-                    const unsigned int adjusted_phi_particles = std::max(static_cast<unsigned int> (phi_particles * std::sin(spherical_coordinates[2])),(unsigned int) 1);
+                    const unsigned int adjusted_phi_particles = std::max(static_cast<unsigned int> (phi_particles * std::sin(spherical_coordinates[2])), 1u);
                     const double phi_spacing = (P_max[1] - P_min[1]) / fmax(adjusted_phi_particles-1,1);
                     for (unsigned int k = 0; k < adjusted_phi_particles; ++k)
                       {
@@ -137,7 +142,7 @@ namespace aspect
           prm.enter_subsection("Particles");
           {
             prm.declare_entry ("Number of particles", "1000",
-                               Patterns::Double (0),
+                               Patterns::Double (0.),
                                "Total number of particles to create (not per processor or per element). "
                                "The number is parsed as a floating point number (so that one can "
                                "specify, for example, '1e4' particles) but it is interpreted as "
@@ -147,42 +152,44 @@ namespace aspect
             {
               prm.enter_subsection("Uniform radial");
               {
-                prm.declare_entry ("Center x", "0",
+                prm.declare_entry ("Center x", "0.",
                                    Patterns::Double (),
                                    "x coordinate for the center of the spherical region, "
                                    "where particles are generated.");
-                prm.declare_entry ("Center y", "0",
+                prm.declare_entry ("Center y", "0.",
                                    Patterns::Double (),
                                    "y coordinate for the center of the spherical region, "
                                    "where particles are generated.");
-                prm.declare_entry ("Center z", "0",
+                prm.declare_entry ("Center z", "0.",
                                    Patterns::Double (),
                                    "z coordinate for the center of the spherical region, "
                                    "where particles are generated.");
-                prm.declare_entry ("Minimum radius", "0",
-                                   Patterns::Double (0),
+                prm.declare_entry ("Minimum radius", "0.",
+                                   Patterns::Double (0.),
                                    "Minimum radial coordinate for the region of particles. "
                                    "Measured from the center position.");
-                prm.declare_entry ("Maximum radius", "1",
+                prm.declare_entry ("Maximum radius", "1.",
                                    Patterns::Double (),
                                    "Maximum radial coordinate for the region of particles. "
                                    "Measured from the center position.");
-                prm.declare_entry ("Minimum longitude", "0",
-                                   Patterns::Double (0,360),
+                prm.declare_entry ("Minimum longitude", "0.",
+                                   Patterns::Double (-180., 360.),
                                    "Minimum longitude coordinate for the region of particles "
                                    "in degrees. Measured from the center position.");
-                prm.declare_entry ("Maximum longitude", "3.1415",
-                                   Patterns::Double (0,360),
+                prm.declare_entry ("Maximum longitude", "360.",
+                                   Patterns::Double (-180., 360.),
                                    "Maximum longitude coordinate for the region of particles "
                                    "in degrees. Measured from the center position.");
-                prm.declare_entry ("Minimum latitude", "0",
-                                   Patterns::Double (0,180),
+                prm.declare_entry ("Minimum latitude", "0.",
+                                   Patterns::Double (0., 180.),
                                    "Minimum latitude coordinate for the region of particles "
-                                   "in degrees. Measured from the center position.");
-                prm.declare_entry ("Maximum latitude", "3.1415",
-                                   Patterns::Double (0,180),
+                                   "in degrees. Measured from the center position, and from "
+                                   "the north pole.");
+                prm.declare_entry ("Maximum latitude", "180.",
+                                   Patterns::Double (0., 180.),
                                    "Maximum latitude coordinate for the region of particles "
-                                   "in degrees. Measured from the center position.");
+                                   "in degrees. Measured from the center position, and from "
+                                   "the north pole.");
                 prm.declare_entry ("Radial layers", "1",
                                    Patterns::Integer(1),
                                    "The number of radial shells of particles that will be generated "
@@ -223,6 +230,10 @@ namespace aspect
                 AssertThrow(P_max[1] > P_min[1],
                             ExcMessage("The maximum longitude you prescribed in the uniform radial"
                                        "particle generator has to be higher than the minimum longitude."));
+                AssertThrow(P_max[1] - P_min[1] <= 2.0 * numbers::PI,
+                            ExcMessage("The difference between the maximum and minimum longitude you "
+                                       "prescribed in the uniform radial particle generator has to be "
+                                       "less than 360 degrees."));
 
                 if (dim ==3)
                   {

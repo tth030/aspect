@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2016 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2016 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -56,7 +56,7 @@ namespace aspect
         for (unsigned int q=0; q<n_quadrature_points; ++q)
           {
             const SymmetricTensor<2,dim> strain_rate = in.strain_rate[q];
-            const SymmetricTensor<2,dim> compressible_strain_rate
+            const SymmetricTensor<2,dim> deviatoric_strain_rate
               = (this->get_material_model().is_compressible()
                  ?
                  strain_rate - 1./3 * trace(strain_rate) * unit_symmetric_tensor<dim>()
@@ -73,12 +73,12 @@ namespace aspect
             //
             // note that the *compressive* stress is simply the
             // negative stress
-            const SymmetricTensor<2,dim> compressive_stress = -2*eta*compressible_strain_rate;
+            const SymmetricTensor<2,dim> compressive_stress = -2*eta*deviatoric_strain_rate;
 
             // then find a set of (dim-1) horizontal, unit-length, mutually orthogonal vectors
             const Tensor<1,dim> gravity = this->get_gravity_model().gravity_vector (in.position[q]);
             const Tensor<1,dim> vertical_direction = gravity/gravity.norm();
-            std_cxx11::array<Tensor<1,dim>,dim-1 > orthogonal_directions
+            std::array<Tensor<1,dim>,dim-1 > orthogonal_directions
               = Utilities::orthogonal_vectors(vertical_direction);
             for (unsigned int i=0; i<orthogonal_directions.size(); ++i)
               orthogonal_directions[i] /= orthogonal_directions[i].norm();
@@ -111,7 +111,7 @@ namespace aspect
                   const double b = orthogonal_directions[1] *
                                    (compressive_stress *
                                     orthogonal_directions[1]);
-                  const double c = orthogonal_directions[0] *
+                  const double c = 2.0*orthogonal_directions[0] *
                                    (compressive_stress *
                                     orthogonal_directions[1]);
 
@@ -200,7 +200,7 @@ namespace aspect
       UpdateFlags
       MaximumHorizontalCompressiveStress<dim>::get_needed_update_flags () const
       {
-        return update_gradients | update_values | update_q_points;
+        return update_gradients | update_values | update_quadrature_points;
       }
 
     }
@@ -257,7 +257,7 @@ namespace aspect
                                                   "Evaluating the derivative and using trigonometric identities, "
                                                   "one finds that $\\alpha$ has to satisfy the equation "
                                                   "\\begin{align*}"
-                                                  "  \\tan(2\\alpha) = \\frac{\\mathbf u^T \\sigma_c \\mathbf v}"
+                                                  "  \\tan(2\\alpha) = \\frac{2.0\\mathbf u^T \\sigma_c \\mathbf v}"
                                                   "                          {\\mathbf u^T \\sigma_c \\mathbf u "
                                                   "                           - \\mathbf v^T \\sigma_c \\mathbf v}."
                                                   "\\end{align*}"
@@ -286,7 +286,7 @@ namespace aspect
                                                   "a given location simply because the hydrostatic pressure "
                                                   "is the largest component of the overall stress. On the other "
                                                   "hand, the hydrostatic pressure does not determine any "
-                                                  "principle direction because it is an isotropic, anti-compressive "
+                                                  "principal direction because it is an isotropic, anti-compressive "
                                                   "force. As a consequence, there are often points in simulations "
                                                   "(e.g., at the center of convection rolls) where the stress has "
                                                   "no dominant horizontal direction, and the algorithm above will "

@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2015 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2015 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -20,14 +20,13 @@
 
 
 #include <aspect/material_model/interface.h>
-#include <aspect/material_model/grain_size.h>
 #include <aspect/adiabatic_conditions/interface.h>
 #include <aspect/simulator_access.h>
 #include <aspect/utilities.h>
 
 #include <iostream>
 #include <deal.II/base/quadrature_lib.h>
-#include <deal.II/base/std_cxx11/unique_ptr.h>
+#include <memory>
 #include <deal.II/fe/fe_values.h>
 
 namespace aspect
@@ -46,9 +45,9 @@ namespace aspect
           const std::string datadirectory = Utilities::expand_ASPECT_SOURCE_DIR("$ASPECT_SOURCE_DIR/data/material-model/latent-heat-enthalpy-test/");
           const std::string material_file_names  = "testdata.txt";
 
-          material_lookup.reset(new Lookup::PerplexReader(datadirectory+material_file_names,
-                                                          true,
-                                                          this->get_mpi_communicator()));
+          material_lookup = std_cxx14::make_unique<MaterialModel::MaterialUtilities::Lookup::PerplexReader>(datadirectory+material_file_names,
+                            true,
+                            this->get_mpi_communicator());
         }
 
         double
@@ -142,9 +141,9 @@ namespace aspect
                 }
             }
 
-          for (unsigned int i=0; i<in.position.size(); ++i)
+          for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
             {
-              if (in.strain_rate.size() > 0)
+              if (in.requests_property(MaterialProperties::viscosity))
                 out.viscosities[i] = eta;
 
               out.densities[i] = material_lookup->density(in.temperature[i],in.pressure[i]);
@@ -175,7 +174,7 @@ namespace aspect
         }
 
       private:
-        std_cxx11::unique_ptr<Lookup::MaterialLookup> material_lookup;
+        std::unique_ptr<MaterialModel::MaterialUtilities::Lookup::MaterialLookup> material_lookup;
     };
   }
 }

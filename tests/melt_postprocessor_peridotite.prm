@@ -1,5 +1,5 @@
 # This test checks if the postprocessor 'melt fraction' works as 
-# intended. The visulaization output is then a p-T-diagramme of
+# intended. The visualization output is then a p-T-diagram of
 # the melt fraction of peridotite using the melting model of 
 # Katz et. al, 2003 (Geochem., Geophys., Geosyst. )
 # with the temperature ranging from 1000°C to 1900°C on the x axis 
@@ -124,6 +124,7 @@ subsection Postprocess
   set List of postprocessors = visualization
 
   subsection Visualization
+    set Interpolate output = false
     set Output format = gnuplot
     set Time between graphical output = 0.01
     set List of output variables = melt fraction

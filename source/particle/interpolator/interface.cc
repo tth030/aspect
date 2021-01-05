@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2015 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2015 - 2020 by the authors of the ASPECT code.
 
  This file is part of ASPECT.
 
@@ -63,7 +63,7 @@ namespace aspect
 
       namespace
       {
-        std_cxx1x::tuple
+        std::tuple
         <void *,
         void *,
         aspect::internal::Plugins::PluginList<Interface<2> >,
@@ -79,11 +79,12 @@ namespace aspect
                                       void (*declare_parameters_function) (ParameterHandler &),
                                       Interface<dim> *(*factory_function) ())
       {
-        std_cxx1x::get<dim>(registered_plugins).register_plugin (name,
-                                                                 description,
-                                                                 declare_parameters_function,
-                                                                 factory_function);
+        std::get<dim>(registered_plugins).register_plugin (name,
+                                                           description,
+                                                           declare_parameters_function,
+                                                           factory_function);
       }
+
 
 
       template <int dim>
@@ -101,9 +102,11 @@ namespace aspect
         }
         prm.leave_subsection ();
 
-        return std_cxx1x::get<dim>(registered_plugins).create_plugin (name,
-                                                                      "Particle::Interpolator name");
+        return std::get<dim>(registered_plugins).create_plugin (name,
+                                                                "Particle::Interpolator name");
       }
+
+
 
       template <int dim>
       void
@@ -115,19 +118,19 @@ namespace aspect
           prm.enter_subsection ("Particles");
           {
             const std::string pattern_of_names
-              = std_cxx11::get<dim>(registered_plugins).get_pattern_of_names ();
+              = std::get<dim>(registered_plugins).get_pattern_of_names ();
 
             prm.declare_entry ("Interpolation scheme", "cell average",
                                Patterns::Selection (pattern_of_names),
                                "Select one of the following models:\n\n"
                                +
-                               std_cxx11::get<dim>(registered_plugins).get_description_string());
+                               std::get<dim>(registered_plugins).get_description_string());
           }
           prm.leave_subsection ();
         }
         prm.leave_subsection ();
 
-        std_cxx11::get<dim>(registered_plugins).declare_parameters (prm);
+        std::get<dim>(registered_plugins).declare_parameters (prm);
       }
 
 
@@ -136,8 +139,8 @@ namespace aspect
       void
       write_plugin_graph (std::ostream &out)
       {
-        std_cxx11::get<dim>(registered_plugins).write_plugin_graph ("Particle interpolator interface",
-                                                                    out);
+        std::get<dim>(registered_plugins).write_plugin_graph ("Particle interpolator interface",
+                                                              out);
       }
     }
   }
@@ -152,10 +155,10 @@ namespace aspect
     {
       template <>
       std::list<internal::Plugins::PluginList<Particle::Interpolator::Interface<2> >::PluginInfo> *
-      internal::Plugins::PluginList<Particle::Interpolator::Interface<2> >::plugins = 0;
+      internal::Plugins::PluginList<Particle::Interpolator::Interface<2> >::plugins = nullptr;
       template <>
       std::list<internal::Plugins::PluginList<Particle::Interpolator::Interface<3> >::PluginInfo> *
-      internal::Plugins::PluginList<Particle::Interpolator::Interface<3> >::plugins = 0;
+      internal::Plugins::PluginList<Particle::Interpolator::Interface<3> >::plugins = nullptr;
     }
   }
 
@@ -186,6 +189,8 @@ namespace aspect
   create_particle_interpolator<dim> (ParameterHandler &prm);
 
       ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
     }
   }
 }

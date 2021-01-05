@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -22,18 +22,16 @@
 #include <aspect/simulator.h>
 #include <aspect/global.h>
 #include <aspect/melt.h>
+#include <aspect/stokes_matrix_free.h>
 
 #include <deal.II/base/signaling_nan.h>
 #include <deal.II/lac/solver_gmres.h>
-#include <deal.II/lac/constraint_matrix.h>
 
 #ifdef ASPECT_USE_PETSC
 #include <deal.II/lac/solver_cg.h>
 #else
 #include <deal.II/lac/trilinos_solver.h>
 #endif
-
-#include <deal.II/lac/pointer_matrix.h>
 
 #include <deal.II/fe/fe_values.h>
 
@@ -326,7 +324,7 @@ namespace aspect
 
       // apply the top right block
       {
-        stokes_matrix.block(0,1).vmult(utmp, dst.block(1)); // B^T
+        stokes_matrix.block(0,1).vmult(utmp, dst.block(1)); // B^T or J^{up}
         utmp *= -1.0;
         utmp += src.block(0);
       }
@@ -375,6 +373,39 @@ namespace aspect
 
   }
 
+  namespace
+  {
+    void linear_solver_failed(const std::string &solver_name,
+                              const std::string &output_filename,
+                              const std::vector<SolverControl> &solver_controls,
+                              const std::exception &exc)
+    {
+      // output solver history
+      std::ofstream f((output_filename).c_str());
+
+      for (unsigned int i=0; i<solver_controls.size(); ++i)
+        {
+          if (i>0)
+            f << "\n";
+
+          // Only request the solver history if a history has actually been created
+          for (unsigned int j=0; j<solver_controls[i].get_history_data().size(); ++j)
+            f << j << " " << solver_controls[i].get_history_data()[j] << "\n";
+        }
+
+      f.close();
+
+      AssertThrow (false,
+                   ExcMessage ("The " + solver_name
+                               + " did not converge. It reported the following error:\n\n"
+                               +
+                               exc.what()
+                               + "\n The required residual for convergence is: " + std::to_string(solver_controls.front().tolerance())
+                               + ".\n See " + output_filename
+                               + " for convergence history."));
+    }
+  }
+
   template <int dim>
   double Simulator<dim>::solve_advection (const AdvectionField &advection_field)
   {
@@ -400,7 +431,7 @@ namespace aspect
     solver_control.enable_history_data();
 
     SolverGMRES<LinearAlgebra::Vector>   solver (solver_control,
-                                                 SolverGMRES<LinearAlgebra::Vector>::AdditionalData(30,true));
+                                                 SolverGMRES<LinearAlgebra::Vector>::AdditionalData(parameters.advection_gmres_restart_length,true));
 
     // check if matrix and/or RHS are zero
     // note: to avoid a warning, we compare against numeric_limits<double>::min() instead of 0 here
@@ -425,11 +456,12 @@ namespace aspect
                             "but the right-hand side is nonzero."));
 
     LinearAlgebra::PreconditionILU preconditioner;
-    build_advection_preconditioner(advection_field, preconditioner);
+    // first build without diagonal strengthening:
+    build_advection_preconditioner(advection_field, preconditioner, 0.);
 
     TimerOutput::Scope timer (computing_timer, (advection_field.is_temperature() ?
-                                                "   Solve temperature system" :
-                                                "   Solve composition system"));
+                                                "Solve temperature system" :
+                                                "Solve composition system"));
     if (advection_field.is_temperature())
       {
         pcout << "   Solving temperature system... " << std::flush;
@@ -443,7 +475,7 @@ namespace aspect
       }
 
     // Create distributed vector (we need all blocks here even though we only
-    // solve for the current block) because only have a ConstraintMatrix
+    // solve for the current block) because only have a AffineConstraints<double>
     // for the whole system, current_linearization_point contains our initial guess.
     LinearAlgebra::BlockVector distributed_solution (
       introspection.index_sets.system_partitioning,
@@ -467,10 +499,26 @@ namespace aspect
     // solve the linear system:
     try
       {
-        solver.solve (system_matrix.block(block_idx,block_idx),
-                      distributed_solution.block(block_idx),
-                      system_rhs.block(block_idx),
-                      preconditioner);
+        try
+          {
+            solver.solve (system_matrix.block(block_idx,block_idx),
+                          distributed_solution.block(block_idx),
+                          system_rhs.block(block_idx),
+                          preconditioner);
+          }
+        catch (const std::exception &exc)
+          {
+            // Try rebuilding the preconditioner with diagonal strengthening. In general,
+            // this increases the number of iterations needed, but helps in rare situations,
+            // especially when SUPG is used.
+            pcout << "retrying linear solve with different preconditioner..." << std::endl;
+            build_advection_preconditioner(advection_field, preconditioner, 1e-5);
+            solver.solve (system_matrix.block(block_idx,block_idx),
+                          distributed_solution.block(block_idx),
+                          system_rhs.block(block_idx),
+                          preconditioner);
+          }
+
       }
     // if the solver fails, report the error from processor 0 with some additional
     // information about its location, and throw a quiet exception on all other
@@ -484,13 +532,14 @@ namespace aspect
                                       solver_control);
 
         if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-          AssertThrow (false,
-                       ExcMessage (std::string("The iterative advection solver "
-                                               "did not converge. It reported the following error:\n\n")
-                                   +
-                                   exc.what()))
-          else
-            throw QuietException();
+          {
+            linear_solver_failed("iterative advection solver",
+                                 parameters.output_directory+"solver_history.txt",
+                                 std::vector<SolverControl> {solver_control},
+                                 exc);
+          }
+        else
+          throw QuietException();
       }
 
     // signal successful solver
@@ -525,8 +574,13 @@ namespace aspect
   std::pair<double,double>
   Simulator<dim>::solve_stokes ()
   {
-    TimerOutput::Scope timer (computing_timer, "   Solve Stokes system");
+    TimerOutput::Scope timer (computing_timer, "Solve Stokes system");
     pcout << "   Solving Stokes system... " << std::flush;
+
+    if (parameters.stokes_solver_type == Parameters<dim>::StokesSolverType::block_gmg)
+      {
+        return stokes_matrix_free->solve();
+      }
 
     // extract Stokes parts of solution vector, without any ghost elements
     LinearAlgebra::BlockVector distributed_stokes_solution (introspection.index_sets.stokes_partitioning, mpi_communicator);
@@ -666,7 +720,7 @@ namespace aspect
         // linearized_stokes_variables has a different
         // layout than current_linearization_point, which also contains all the
         // other solution variables.
-        if (!assemble_newton_stokes_system)
+        if (assemble_newton_stokes_system == false)
           {
             linearized_stokes_initial_guess.block (block_vel) = current_linearization_point.block (block_vel);
             linearized_stokes_initial_guess.block (block_p) = current_linearization_point.block (block_p);
@@ -678,12 +732,12 @@ namespace aspect
         else
           {
             // The Newton solver solves for updates to variables, for which our best guess is zero when
-            // the it isn't the first nonlinear iteration. When it is the first nonlinear iteration, we
+            // it isn't the first nonlinear iteration. When it is the first nonlinear iteration, we
             // have to assemble the full (non-defect correction) Picard, to get the boundary conditions
-            // right in combination with being able to use the initial guess optimally. So we may never
+            // right in combination with being able to use the initial guess optimally. So we should never
             // end up here when it is the first nonlinear iteration.
             Assert(nonlinear_iteration != 0,
-                   ExcMessage ("The Newton solver may not be active in the first nonlinear iteration"));
+                   ExcMessage ("The Newton solver should not be active in the first nonlinear iteration."));
 
             linearized_stokes_initial_guess.block (block_vel) = 0;
             linearized_stokes_initial_guess.block (block_p) = 0;
@@ -791,7 +845,7 @@ namespace aspect
             SolverFGMRES<LinearAlgebra::BlockVector>
             solver(solver_control_cheap, mem,
                    SolverFGMRES<LinearAlgebra::BlockVector>::
-                   AdditionalData(50, true));
+                   AdditionalData(parameters.stokes_gmres_restart_length));
 
             solver.solve (stokes_block,
                           distributed_stokes_solution,
@@ -804,16 +858,26 @@ namespace aspect
         // step 1b: take the stronger solver in case
         // the simple solver failed and attempt solving
         // it in n_expensive_stokes_solver_steps steps or less.
-        catch (SolverControl::NoConvergence)
+        catch (const SolverControl::NoConvergence &)
           {
-            const unsigned int number_of_temporary_vectors = (parameters.include_melt_transport ? 100 : 50);
+            // use the value defined by the user
+            // OR
+            // at least a restart length of 100 for melt models
+            const unsigned int number_of_temporary_vectors = (parameters.include_melt_transport == false ?
+                                                              parameters.stokes_gmres_restart_length :
+                                                              std::max(parameters.stokes_gmres_restart_length, 100U));
+
             SolverFGMRES<LinearAlgebra::BlockVector>
             solver(solver_control_expensive, mem,
                    SolverFGMRES<LinearAlgebra::BlockVector>::
-                   AdditionalData(number_of_temporary_vectors, true));
+                   AdditionalData(number_of_temporary_vectors));
 
             try
               {
+                AssertThrow (parameters.n_expensive_stokes_solver_steps>0,
+                             ExcMessage ("The Stokes solver did not converge in the number of requested cheap iterations and "
+                                         "you requested 0 for ``Maximum number of expensive Stokes solver steps''. Aborting."));
+
                 solver.solve(stokes_block,
                              distributed_stokes_solution,
                              distributed_stokes_rhs,
@@ -834,51 +898,16 @@ namespace aspect
 
                 if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
                   {
-                    // output solver history
-                    std::ofstream f((parameters.output_directory+"solver_history.txt").c_str());
-
-                    // Only request the solver history if a history has actually been created
-                    if (parameters.n_cheap_stokes_solver_steps > 0)
-                      {
-                        for (unsigned int i=0; i<solver_control_cheap.get_history_data().size(); ++i)
-                          f << i << " " << solver_control_cheap.get_history_data()[i] << "\n";
-
-                        f << "\n";
-                      }
-
-
-                    for (unsigned int i=0; i<solver_control_expensive.get_history_data().size(); ++i)
-                      f << i << " " << solver_control_expensive.get_history_data()[i] << "\n";
-
-                    f.close();
-
-                    // avoid a deadlock that was fixed after deal.II 8.5.0
-#if DEAL_II_VERSION_GTE(9,0,0)
-                    AssertThrow (false,
-                                 ExcMessage (std::string("The iterative Stokes solver "
-                                                         "did not converge. It reported the following error:\n\n")
-                                             +
-                                             exc.what()
-                                             + "\n See " + parameters.output_directory+"solver_history.txt"
-                                             + " for convergence history."));
-#else
-                    std::cerr << "The iterative Stokes solver "
-                              << "did not converge. It reported the following error:\n\n"
-                              << exc.what()
-                              << "\n See "
-                              << parameters.output_directory
-                              << "solver_history.txt for convergence history."
-                              << std::endl;
-                    std::abort();
-#endif
+                    linear_solver_failed("iterative Stokes solver",
+                                         parameters.output_directory+"solver_history.txt",
+                                         parameters.n_cheap_stokes_solver_steps > 0 ?
+                                         std::vector<SolverControl> {solver_control_cheap, solver_control_expensive} :
+                                         std::vector<SolverControl> {solver_control_expensive},
+                                         exc);
                   }
                 else
                   {
-#if DEAL_II_VERSION_GTE(9,0,0)
                     throw QuietException();
-#else
-                    std::abort();
-#endif
                   }
               }
           }
@@ -917,12 +946,12 @@ namespace aspect
 
     // do some cleanup now that we have the solution
     remove_nullspace(solution, distributed_stokes_solution);
-    if (!assemble_newton_stokes_system)
+    if (assemble_newton_stokes_system == false)
       this->last_pressure_normalization_adjustment = normalize_pressure(solution);
 
     // convert melt pressures:
     if (parameters.include_melt_transport)
-      melt_handler->compute_melt_variables(solution);
+      melt_handler->compute_melt_variables(system_matrix,solution,system_rhs);
 
     return std::pair<double,double>(initial_nonlinear_residual,
                                     final_linear_residual);
@@ -942,4 +971,6 @@ namespace aspect
   template std::pair<double,double> Simulator<dim>::solve_stokes ();
 
   ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
 }

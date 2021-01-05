@@ -1,3 +1,22 @@
+/*
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
+
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
 #include <deal.II/base/function_lib.h>
 #include <aspect/material_model/interface.h>
 #include <aspect/boundary_composition/interface.h>
@@ -35,7 +54,7 @@ namespace aspect
         /**
          * Pointer to the material model used as the base model
          */
-        std_cxx11::shared_ptr<MaterialModel::Interface<dim> > base_model;
+        std::unique_ptr<MaterialModel::Interface<dim> > base_model;
 
         /**
          * Parameters determining the initial decay rate.
@@ -103,7 +122,7 @@ namespace aspect
       base_model->evaluate(in,out);
       const double time_scale = this->convert_output_to_years() ? year_in_seconds : 1.0;
 
-      for (unsigned int q=0; q < in.position.size(); ++q)
+      for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
         for (unsigned int c=0; c < this->introspection().n_compositional_fields; ++c)
           out.reaction_terms[q][c] = 0.0;
 
@@ -112,7 +131,7 @@ namespace aspect
 
       if (reaction_out != NULL)
         {
-          for (unsigned int q=0; q < in.position.size(); ++q)
+          for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
             {
               // dC/dt = - z * lambda * C
               const double decay_constant = half_life > 0.0 ? log(2.0) / half_life : 0.0;
@@ -167,8 +186,8 @@ namespace aspect
           // class; it will get a chance to read its parameters below after we
           // leave the current section
           base_model.reset(create_material_model<dim>(prm.get("Base model")));
-          if (SimulatorAccess<dim> *sim = dynamic_cast<SimulatorAccess<dim>*>(base_model.get()))
-            sim->initialize_simulator (this->get_simulator());
+          if (Plugins::plugin_type_matches<SimulatorAccess<dim>>(*base_model))
+            Plugins::get_plugin_as_type<SimulatorAccess<dim>>(*base_model).initialize_simulator (this->get_simulator());
 
           half_life              = prm.get_double ("Half life");
         }
@@ -189,10 +208,9 @@ namespace aspect
     {
       if (out.template get_additional_output<ReactionRateOutputs<dim> >() == NULL)
         {
-          const unsigned int n_points = out.viscosities.size();
+          const unsigned int n_points = out.n_evaluation_points();
           out.additional_outputs.push_back(
-            std_cxx11::shared_ptr<MaterialModel::AdditionalMaterialOutputs<dim> >
-            (new MaterialModel::ReactionRateOutputs<dim> (n_points, this->n_compositional_fields())));
+            std_cxx14::make_unique<MaterialModel::ReactionRateOutputs<dim>> (n_points, this->n_compositional_fields()));
         }
     }
   }
@@ -207,7 +225,7 @@ namespace aspect
               const MaterialModel::MaterialModelOutputs<dim> & /*out*/,
               HeatingModel::HeatingModelOutputs &heating_model_outputs) const
     {
-      Assert(heating_model_outputs.heating_source_terms.size() == in.position.size(),
+      Assert(heating_model_outputs.heating_source_terms.size() == in.n_evaluation_points(),
              ExcMessage ("Heating outputs need to have the same number of entries as the material model inputs."));
 
       const double time_scale = this->convert_output_to_years() ? year_in_seconds : 1.0;
@@ -436,10 +454,10 @@ namespace aspect
                                        VectorTools::L2_norm,
                                        &comp_T);
 
-    const double current_error = std::sqrt(Utilities::MPI::sum(cellwise_errors_composition.norm_sqr(),MPI_COMM_WORLD));
+    const double current_error = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_composition, VectorTools::L2_norm);
     max_error = std::max(max_error, current_error);
 
-    const double current_error_T = std::sqrt(Utilities::MPI::sum(cellwise_errors_temperature.norm_sqr(),MPI_COMM_WORLD));
+    const double current_error_T = VectorTools::compute_global_error(this->get_triangulation(), cellwise_errors_temperature, VectorTools::L2_norm);
     max_error_T = std::max(max_error_T, current_error_T);
 
     std::ostringstream os;
@@ -494,4 +512,3 @@ namespace aspect
                                 "A postprocessor that compares the solution "
                                 "to the analytical solution for exponential decay.")
 }
-

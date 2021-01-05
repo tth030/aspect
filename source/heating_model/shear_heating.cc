@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2019 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -47,7 +47,7 @@ namespace aspect
 
       for (unsigned int q=0; q<heating_model_outputs.heating_source_terms.size(); ++q)
         {
-          const SymmetricTensor<2,dim> compressible_strain_rate =
+          const SymmetricTensor<2,dim> deviatoric_strain_rate =
             (this->get_material_model().is_compressible()
              ?
              material_model_inputs.strain_rate[q]
@@ -57,13 +57,13 @@ namespace aspect
 
           const SymmetricTensor<2,dim> stress =
             2 * material_model_outputs.viscosities[q] *
-            compressible_strain_rate;
+            deviatoric_strain_rate;
 
-          heating_model_outputs.heating_source_terms[q] = stress * compressible_strain_rate;
+          heating_model_outputs.heating_source_terms[q] = stress * deviatoric_strain_rate;
 
           // If dislocation viscosities and boundary area work fractions are provided, reduce the
           // overall heating by this amount (which is assumed to increase surface energy)
-          if (disl_viscosities_out != 0)
+          if (disl_viscosities_out != nullptr)
             {
               heating_model_outputs.heating_source_terms[q] *= 1 - disl_viscosities_out->boundary_area_change_work_fractions[q] *
                                                                material_model_outputs.viscosities[q] / disl_viscosities_out->dislocation_viscosities[q];

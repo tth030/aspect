@@ -1,3 +1,23 @@
+/*
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
+
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
+
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/parsed_function.h>
 #include <deal.II/fe/fe_values.h>
@@ -157,21 +177,27 @@ namespace aspect
       }
   }
 
+  /**
+   * A set of helper functions that either return the point passed to it (if
+   * the current dimension is the same) or return a dummy value (otherwise).
+   */
   namespace
   {
-    template <int dim>
-    const Point<2> &as_2d(const Point<dim> &p);
+    const Point<2> as_2d(const Point<3> &/*p*/)
+    {
+      return Point<2>();
+    }
 
-    template <>
     const Point<2> &as_2d(const Point<2> &p)
     {
       return p;
     }
 
-    template <int dim>
-    const Point<3> &as_3d(const Point<dim> &p);
+    const Point<3> as_3d(const Point<2> &/*p*/)
+    {
+      return Point<3>();
+    }
 
-    template <>
     const Point<3> &as_3d(const Point<3> &p)
     {
       return p;
@@ -187,13 +213,13 @@ namespace aspect
    */
   template <int dim>
   void constrain_internal_velocities (const SimulatorAccess<dim> &simulator_access,
-                                      ConstraintMatrix &current_constraints)
+                                      AffineConstraints<double> &current_constraints)
   {
     if (prescribe_internal_velocities)
       {
         const std::vector< Point<dim> > points = get_unit_support_points_for_velocity(simulator_access);
         const Quadrature<dim> quadrature (points);
-        FEValues<dim> fe_values (simulator_access.get_fe(), quadrature, update_q_points);
+        FEValues<dim> fe_values (simulator_access.get_fe(), quadrature, update_quadrature_points);
         typename DoFHandler<dim>::active_cell_iterator cell;
 
         // Loop over all cells
@@ -203,7 +229,7 @@ namespace aspect
           if (! cell->is_artificial())
             {
               fe_values.reinit (cell);
-              std::vector<unsigned int> local_dof_indices(simulator_access.get_fe().dofs_per_cell);
+              std::vector<types::global_dof_index> local_dof_indices(simulator_access.get_fe().dofs_per_cell);
               cell->get_dof_indices (local_dof_indices);
 
               for (unsigned int q=0; q<quadrature.size(); q++)
@@ -298,7 +324,7 @@ namespace aspect
     signals.post_constraints_creation.connect (&constrain_internal_velocities<dim>);
   }
 
-  // Tell Aspect to send signals to the connector functions
+  // Tell ASPECT to send signals to the connector functions
   ASPECT_REGISTER_SIGNALS_PARAMETER_CONNECTOR(parameter_connector)
   ASPECT_REGISTER_SIGNALS_CONNECTOR(signal_connector<2>, signal_connector<3>)
 }

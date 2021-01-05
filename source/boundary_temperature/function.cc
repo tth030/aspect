@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2020 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -22,7 +22,6 @@
 #include <aspect/boundary_temperature/function.h>
 #include <aspect/utilities.h>
 #include <aspect/global.h>
-#include <deal.II/base/signaling_nan.h>
 
 namespace aspect
 {
@@ -42,33 +41,9 @@ namespace aspect
     boundary_temperature (const types::boundary_id /*boundary_indicator*/,
                           const Point<dim> &position) const
     {
-      if (coordinate_system == Utilities::Coordinates::cartesian)
-        {
-          return boundary_temperature_function.value(position);
-        }
-      else if (coordinate_system == Utilities::Coordinates::spherical)
-        {
-          const std_cxx11::array<double,dim> spherical_coordinates =
-            aspect::Utilities::Coordinates::cartesian_to_spherical_coordinates(position);
-          Point<dim> point;
-
-          for (unsigned int i = 0; i<dim; ++i)
-            point[i] = spherical_coordinates[i];
-
-          return boundary_temperature_function.value(point);
-        }
-      else if (coordinate_system == Utilities::Coordinates::depth)
-        {
-          const double depth = this->get_geometry_model().depth(position);
-          Point<dim> point;
-          point(0) = depth;
-          return boundary_temperature_function.value(point);
-        }
-      else
-        {
-          AssertThrow(false, ExcNotImplemented());
-          return numbers::signaling_nan<double>();
-        }
+      Utilities::NaturalCoordinate<dim> point =
+        this->get_geometry_model().cartesian_to_other_coordinates(position, coordinate_system);
+      return boundary_temperature_function.value(Utilities::convert_array_to_point<dim>(point.get_coordinates()));
     }
 
 
@@ -126,12 +101,12 @@ namespace aspect
 
           Functions::ParsedFunction<dim>::declare_parameters (prm, 1);
 
-          prm.declare_entry ("Minimal temperature", "273",
+          prm.declare_entry ("Minimal temperature", "273.",
                              Patterns::Double (),
-                             "Minimal temperature. Units: K.");
-          prm.declare_entry ("Maximal temperature", "3773",
+                             "Minimal temperature. Units: \\si{\\kelvin}.");
+          prm.declare_entry ("Maximal temperature", "3773.",
                              Patterns::Double (),
-                             "Maximal temperature. Units: K.");
+                             "Maximal temperature. Units: \\si{\\kelvin}.");
         }
         prm.leave_subsection();
       }

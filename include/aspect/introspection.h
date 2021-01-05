@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2011 - 2017 by the authors of the ASPECT code.
+  Copyright (C) 2011 - 2018 by the authors of the ASPECT code.
 
   This file is part of ASPECT.
 
@@ -346,6 +346,12 @@ namespace aspect
        */
       std::string
       name_for_compositional_index (const unsigned int index) const;
+
+      /**
+       * A function that returns the full list of compositional field names.
+       */
+      const std::vector<std::string> &
+      get_composition_names () const;
 
       /**
        * A function that gets the name of a compositional field as an input
